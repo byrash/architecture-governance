@@ -36,7 +36,21 @@ release:
 	@docker build -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest .
 	@echo "Exporting image..."
 	@docker save $(DOCKER_IMAGE):$(VERSION) | gzip > $(DOCKER_IMAGE)-$(VERSION).tar.gz
-	@echo "Done: $(DOCKER_IMAGE)-$(VERSION).tar.gz"
 	@ls -lh $(DOCKER_IMAGE)-$(VERSION).tar.gz
 	@echo ""
+	@echo "Creating GitHub release v$(VERSION)..."
+	@if ! command -v gh &> /dev/null; then \
+		echo "Error: GitHub CLI (gh) not installed. Install with: brew install gh"; \
+		exit 1; \
+	fi
+	@if ! gh auth status &> /dev/null; then \
+		echo "Error: Not logged in to GitHub. Run: gh auth login"; \
+		exit 1; \
+	fi
+	@gh release create v$(VERSION) \
+		$(DOCKER_IMAGE)-$(VERSION).tar.gz \
+		--title "Architecture Governance v$(VERSION)" \
+		--notes "Docker image for architecture governance validation. Import with: gunzip -c $(DOCKER_IMAGE)-$(VERSION).tar.gz | docker load"
+	@echo ""
+	@echo "Released: v$(VERSION)"
 	@echo "To import: gunzip -c $(DOCKER_IMAGE)-$(VERSION).tar.gz | docker load"
