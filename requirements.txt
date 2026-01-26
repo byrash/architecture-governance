@@ -1,0 +1,23 @@
+# Architecture Governance System - Python Dependencies
+
+# Document parsing
+pdfplumber>=0.10.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Markdown processing
+markdown>=3.5.0
+
+# HTTP client for API calls (Confluence, etc.)
+requests>=2.31.0
+
+# HTML templating
+Jinja2>=3.1.0
+
+# Future: Vector DB clients (uncomment when needed)
+# pinecone-client>=2.0.0
+# weaviate-client>=4.0.0
+
+# Future: OCR (uncomment when needed)
+# pytesseract>=0.3.0
+# Pillow>=10.0.0

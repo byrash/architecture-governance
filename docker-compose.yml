@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  governance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: architecture-governance
+    env_file:
+      - .env
+    environment:
+      - COPILOT_TOKEN=${COPILOT_TOKEN}
+      - MODEL=${MODEL:-claude-opus-4.5}
+      - VERBOSE=${VERBOSE:-true}
+      - INPUT_FILE=${INPUT_FILE:-docs/sample-architecture.html}
+    volumes:
+      - ./governance/output:/app/governance/output
+      - ./docs:/app/docs:ro
+    command: ["validate"]

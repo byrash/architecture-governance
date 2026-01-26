@@ -1,0 +1,67 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.3.0 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.3.0">
+  <diagram name="Architecture" id="architecture-1">
+    <mxGraphModel dx="42057" dy="27098" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Client Application" vertex="1">
+          <mxGeometry height="60" width="120" x="340" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="API Gateway" vertex="1">
+          <mxGeometry height="60" width="120" x="340" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="User Service" vertex="1">
+          <mxGeometry height="60" width="120" x="160" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order Service" vertex="1">
+          <mxGeometry height="60" width="120" x="340" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Payment Service" vertex="1">
+          <mxGeometry height="60" width="120" x="520" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;" value="Database" vertex="1">
+          <mxGeometry height="80" width="120" x="340" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Message Queue" vertex="1">
+          <mxGeometry height="60" width="120" x="160" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="edge1" edge="1" parent="1" source="2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="3" value="REST" />
+        <mxCell id="edge2" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="4" value="" />
+        <mxCell id="edge3" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="5" value="" />
+        <mxCell id="edge4" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="6" value="" />
+        <mxCell id="edge5" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="7" value="Query" />
+        <mxCell id="edge6" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="8" value="Events" />
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-10" edge="1" parent="1" source="ELD5D6x4Rn5uPIxK1my9-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="ELD5D6x4Rn5uPIxK1my9-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-8" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" value="User" vertex="1">
+          <mxGeometry height="60" width="30" x="-3210" y="-1870" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-12" edge="1" parent="1" source="ELD5D6x4Rn5uPIxK1my9-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="ELD5D6x4Rn5uPIxK1my9-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Web App" vertex="1">
+          <mxGeometry height="60" width="120" x="-3080" y="-1870" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Application Server" vertex="1">
+          <mxGeometry height="60" width="120" x="-2880" y="-1870" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-13" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;" value="DB" vertex="1">
+          <mxGeometry height="80" width="60" x="-2680" y="-1880" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-14" edge="1" parent="1" source="ELD5D6x4Rn5uPIxK1my9-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="ELD5D6x4Rn5uPIxK1my9-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-15" parent="1" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;" value="Angular" vertex="1">
+          <mxGeometry height="80" width="120" x="-3070" y="-1950" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-16" parent="1" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;" value="Spring" vertex="1">
+          <mxGeometry height="80" width="120" x="-2880" y="-1950" as="geometry" />
+        </mxCell>
+        <mxCell id="ELD5D6x4Rn5uPIxK1my9-18" parent="1" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;" value="Postgres" vertex="1">
+          <mxGeometry height="80" width="120" x="-2710" y="-1960" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

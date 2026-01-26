@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sample Architecture Document</title>
+</head>
+<body>
+    <h1>E-Commerce Platform Architecture</h1>
+    
+    <h2>Overview</h2>
+    <p>This document describes the architecture of our e-commerce platform, including design patterns, security measures, and architectural standards.</p>
+    
+    <h2>Architecture Diagram</h2>
+    <p>The following diagram shows the high-level architecture:</p>
+    <!-- Draw.io diagram embedded - file: architecture-diagram.drawio -->
+    <div class="drawio-diagram" data-diagram-file="architecture-diagram.drawio" style="border: 2px dashed #ccc; padding: 20px; margin: 10px 0; background: #f9f9f9; text-align: center;">
+        <p style="font-size: 48px; margin: 0;">📊</p>
+        <p><strong>Draw.io Diagram</strong></p>
+        <p><a href="architecture-diagram.drawio">architecture-diagram.drawio</a></p>
+        <p style="font-size: 12px; color: #666;">(Embedded diagram - will be converted to Mermaid during processing)</p>
+    </div>
+    
+    <h2>Components</h2>
+    <ul>
+        <li><strong>API Gateway</strong> - Central entry point with OAuth2 authentication</li>
+        <li><strong>User Service</strong> - Manages user accounts using repository pattern</li>
+        <li><strong>Order Service</strong> - Handles order processing with event-driven architecture</li>
+        <li><strong>Payment Service</strong> - Integrates with payment providers using circuit breaker pattern</li>
+        <li><strong>Inventory Service</strong> - Tracks product inventory with CQRS pattern</li>
+    </ul>
+    
+    <h2>Design Patterns</h2>
+    <h3>Repository Pattern</h3>
+    <p>All data access is abstracted through repository interfaces. Services interact with UserRepository, OrderRepository, and InventoryRepository rather than direct database access.</p>
+    
+    <h3>Dependency Injection</h3>
+    <p>We use Spring Framework for dependency injection. All services receive their dependencies through constructor injection, enabling loose coupling and testability.</p>
+    
+    <h3>Circuit Breaker</h3>
+    <p>External service calls (payment providers, shipping APIs) implement circuit breaker pattern using Resilience4j for fault tolerance and graceful degradation.</p>
+    
+    <h3>Event-Driven Architecture</h3>
+    <p>Services communicate asynchronously via Apache Kafka message queues. OrderCreated, PaymentProcessed, and InventoryUpdated events enable loose coupling.</p>
+    
+    <h2>Security</h2>
+    <h3>Authentication</h3>
+    <p>OAuth 2.0 with JWT tokens for user authentication. API keys for service-to-service communication.</p>
+    
+    <h3>Authorization</h3>
+    <p>Role-based access control (RBAC) with roles: admin, manager, customer, guest. Permissions defined per endpoint.</p>
+    
+    <h3>Data Encryption</h3>
+    <p>TLS 1.3 for all communications. AES-256 encryption at rest for sensitive data. Database encryption enabled.</p>
+    
+    <h3>Input Validation</h3>
+    <p>All user inputs validated and sanitized. Parameterized queries used to prevent SQL injection. XSS protection enabled.</p>
+    
+    <h3>Secrets Management</h3>
+    <p>HashiCorp Vault for secrets management. No hardcoded credentials. Environment-specific secrets rotation.</p>
+    
+    <h2>Standards</h2>
+    <h3>API Versioning</h3>
+    <p>All APIs follow versioning: /api/v1/users, /api/v1/orders. Version in URL path.</p>
+    
+    <h3>Health Checks</h3>
+    <p>Each service exposes /health and /healthz endpoints for Kubernetes liveness and readiness probes.</p>
+    
+    <h3>Logging</h3>
+    <p>Structured JSON logging with correlation IDs. Logs shipped to ELK stack for centralized monitoring.</p>
+    
+    <h3>Error Handling</h3>
+    <p>Standardized error response format with error codes. Retry with exponential backoff for transient failures.</p>
+    
+    <h2>Infrastructure</h2>
+    <p>Deployed on Kubernetes with auto-scaling. PostgreSQL for persistent data. Redis for caching. Prometheus + Grafana for monitoring.</p>
+</body>
+</html>
