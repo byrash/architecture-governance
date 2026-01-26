@@ -45,11 +45,8 @@ RUN chmod +x entrypoint.sh
 # Create output directory
 RUN mkdir -p governance/output
 
-# Environment variables (COPILOT_TOKEN passed at runtime via docker-compose)
+# Environment variables (MODEL, VERBOSE, INPUT_FILE, COPILOT_TOKEN passed at runtime via docker-compose)
 ENV PYTHONUNBUFFERED=1
-ENV MODEL="claude-opus-4.5"
-ENV VERBOSE="true"
-ENV INPUT_FILE="docs/sample-architecture.html"
 
 # SSL/TLS - Allow self-signed certificates
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
