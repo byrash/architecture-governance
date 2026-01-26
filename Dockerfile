@@ -45,9 +45,8 @@ RUN chmod +x entrypoint.sh
 # Create output directory
 RUN mkdir -p governance/output
 
-# Environment variables
+# Environment variables (COPILOT_TOKEN passed at runtime via docker-compose)
 ENV PYTHONUNBUFFERED=1
-ENV COPILOT_TOKEN=""
 ENV MODEL="claude-opus-4.5"
 ENV VERBOSE="true"
 ENV INPUT_FILE="docs/sample-architecture.html"
