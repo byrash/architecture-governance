@@ -1,7 +1,7 @@
 ---
 name: governance-agent
 description: Architecture governance orchestrator. Coordinates validation pipeline by invoking other agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
-tools: ["read", "write"]
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
 agents: ["ingestion-agent", "patterns-agent", "standards-agent", "security-agent"]
 skills: ["merge-reports", "markdown-to-html"]
 ---

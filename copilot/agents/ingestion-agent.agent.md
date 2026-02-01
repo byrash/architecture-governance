@@ -1,13 +1,27 @@
 ---
 name: ingestion-agent
 description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
-tools: ["read", "write", "bash"]
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
 skills: ["confluence-ingest", "image-to-mermaid"]
 ---
 
 # Ingestion Agent
 
 Ingest Confluence pages and produce a single clean Markdown file with all diagrams converted to Mermaid.
+
+## ⚠️ CRITICAL: IMAGE CONVERSION RULES
+
+**When converting images to Mermaid, you MUST use actual vision:**
+
+| ✅ DO | ❌ DO NOT |
+|-------|-----------|
+| Read the image file with vision | Guess content from filename |
+| Describe what you see in the image | Assume what a diagram might contain |
+| Generate Mermaid matching observations | Create generic/sample diagrams |
+| Say "cannot read" if vision fails | Make up content you didn't see |
+
+**Every image conversion MUST follow this pattern:**
+1. Read image file → 2. Describe what you see → 3. Generate matching Mermaid
 
 ## Input Parameters
 
@@ -201,20 +215,34 @@ If the page has child pages that are referenced:
   [See section: Page Title (already included above)]
   ```
 
-### Step 2: Convert ALL Images to Mermaid (MANDATORY)
+### Step 2: Convert ALL Images to Mermaid (MANDATORY - USE VISION)
 
 **Use skill**: `image-to-mermaid` at `.github/skills/image-to-mermaid/SKILL.md`
 
 **Note**: Draw.io diagrams are automatically converted to Mermaid by the confluence-ingest skill.
 
-**CRITICAL**: ALL remaining images MUST be converted to Mermaid. Validation agents cannot read image files - they need text/Mermaid content to compare against index rules.
+**CRITICAL**: ALL remaining images MUST be converted to Mermaid using ACTUAL VISION.
+
+⚠️ **DO NOT ASSUME OR GUESS** - You MUST actually READ each image file:
+
+```
+# CORRECT - Actually read the image with vision
+Read file: governance/output/<PAGE_ID>/attachments/Template_BusinessContext.png
+→ Vision sees: boxes labeled "Customer", "System", arrows between them
+→ Generate Mermaid based on WHAT YOU ACTUALLY SEE
+
+# WRONG - Do NOT do this
+See filename "Template_BusinessContext.png"
+→ Assume it's a business context diagram
+→ Make up generic Mermaid ← THIS IS WRONG!
+```
 
 For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
-1. Read the skill instructions
-2. Read the image file using vision
-3. Analyze the visual content
-4. Generate equivalent Mermaid diagram
-5. This is MANDATORY - do not skip any diagram images
+1. **READ the image file** using the read tool (this invokes vision)
+2. **LOOK at the actual content** - what boxes, labels, arrows do you SEE?
+3. **DESCRIBE what you see** before generating Mermaid
+4. **Generate Mermaid** that EXACTLY matches what you saw
+5. If you cannot read the image, say so explicitly - do NOT make up content
 
 ### Step 3: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
 
@@ -326,9 +354,24 @@ If index name was provided (`patterns`, `standards`, or `security`):
 
 ```
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Converting image to Mermaid
+📥 INGESTION-AGENT: Reading image with vision
    Skill: image-to-mermaid
    File: <filename>.png
+   Action: READING IMAGE FILE NOW...
+───────────────────────────────────────────────────
+
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Image content observed
+   File: <filename>.png
+   I SEE: <describe actual boxes, labels, arrows visible>
+   Nodes: <list actual node labels you see>
+   Connections: <list actual connections you see>
+───────────────────────────────────────────────────
+
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Generating Mermaid from observation
+   File: <filename>.png
+   Mermaid: <generated based on what you described above>
 ───────────────────────────────────────────────────
 ```
 

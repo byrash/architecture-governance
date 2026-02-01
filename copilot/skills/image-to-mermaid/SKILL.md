@@ -7,11 +7,30 @@ description: Convert architecture diagram images (PNG, JPG, SVG) to Mermaid synt
 
 Convert architecture diagram images to Mermaid using model vision capabilities. No scripts required.
 
+## CRITICAL: USE ACTUAL VISION - DO NOT ASSUME
+
+⚠️ **YOU MUST ACTUALLY READ AND VIEW THE IMAGE FILE** ⚠️
+
+```
+✅ CORRECT APPROACH:
+1. Read file: attachments/diagram.png  ← Actually invoke the read tool on the image
+2. Vision sees the image content
+3. Describe what you see: "I see 3 boxes labeled X, Y, Z with arrows..."
+4. Generate Mermaid matching what you SAW
+
+❌ WRONG APPROACH:
+1. See filename "BusinessContext.png"
+2. Assume it's a business context diagram
+3. Generate generic/sample Mermaid ← THIS IS FABRICATION!
+```
+
+**If you cannot see/read the image**: Say "I cannot read this image file" - do NOT make up content.
+
 ## Instructions
 
-1. **Read the image** using the read tool with the image path
-2. **Analyze** the visual content
-3. **Generate** equivalent Mermaid syntax
+1. **Read the image file** using the read tool with the FULL path (e.g., `governance/output/<PAGE_ID>/attachments/file.png`)
+2. **Describe what you see** - list the actual boxes, labels, arrows visible in the image
+3. **Generate Mermaid** that exactly matches what you described
 
 ## Analysis Checklist
 
@@ -88,3 +107,24 @@ Use appropriate shapes:
 - Maintain **flow direction** (TB, LR)
 - Use **subgraphs** for grouped components
 - Add **connection labels** where shown
+
+## Before Generating Mermaid - Describe What You See
+
+**ALWAYS describe the image content first:**
+
+```
+Looking at governance/output/123/attachments/architecture.png:
+
+I can see:
+- Top: Box labeled "Web Browser"
+- Middle: Box labeled "API Gateway" 
+- Bottom left: Box labeled "Auth Service"
+- Bottom right: Box labeled "User Service"
+- Arrow from Web Browser to API Gateway labeled "HTTPS"
+- Arrow from API Gateway to Auth Service
+- Arrow from API Gateway to User Service
+
+Now generating Mermaid to match:
+```
+
+This ensures you're converting what you ACTUALLY SEE, not what you assume.

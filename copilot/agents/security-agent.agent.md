@@ -1,7 +1,7 @@
 ---
 name: security-agent
 description: Architecture security validation agent. Validates documents against all security documents in the index. Use when asked to review security, check threat models, or verify security compliance.
-tools: ["read", "write"]
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
 skills: ["security-validate", "index-query"]
 ---
 
