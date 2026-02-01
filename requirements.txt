@@ -1,5 +1,8 @@
 # Architecture Governance System - Python Dependencies
 
+# Environment management
+python-dotenv>=1.0.0
+
 # Confluence integration
 atlassian-python-api>=3.41.0
 

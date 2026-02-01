@@ -47,11 +47,32 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 
 ## Process
 
+### Step 0: Environment Setup (First Run Only)
+
+Check if Python dependencies are installed. If not, set up:
+
+```bash
+# Create virtual environment if it doesn't exist
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+fi
+
+# Activate and install dependencies
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Note**: The script auto-loads `.env` file from the workspace root. Ensure `.env` exists with:
+- `CONFLUENCE_URL`
+- `CONFLUENCE_API_TOKEN`
+
 ### Step 1: Download Confluence Page
 
 Read and follow the `confluence-ingest` skill at `copilot/skills/confluence-ingest/SKILL.md`
 
 ```bash
+# Activate venv if exists, then run
+source .venv/bin/activate 2>/dev/null || true
 python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 ```
 
@@ -61,6 +82,7 @@ Read and follow the `drawio-to-mermaid` skill at `copilot/skills/drawio-to-merma
 
 For each `.drawio` file in `governance/output/<PAGE_ID>/attachments/`:
 ```bash
+source .venv/bin/activate 2>/dev/null || true
 python copilot/skills/drawio-to-mermaid/drawio_to_mermaid.py \
     --input governance/output/<PAGE_ID>/attachments/<file>.drawio \
     --output governance/output/<PAGE_ID>/<file>.mermaid.md

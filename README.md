@@ -4,15 +4,26 @@ AI-powered validation of Confluence architecture documents against patterns, sta
 
 ## Quick Start
 
+### Docker (Recommended)
 ```bash
-# 1. Setup
 cp .env.example .env
-# Edit .env with your Confluence URL, PAT, and Copilot token
+# Edit .env with your tokens
 
-# 2. Run full validation (Docker)
 make validate PAGE_ID=123456789
+```
 
-# 3. Or use agents in IDE
+### IDE Agents
+```bash
+# 1. Setup (first time only)
+cp .env.example .env
+# Edit .env with CONFLUENCE_URL and CONFLUENCE_API_TOKEN
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Use agents (venv auto-activates, .env auto-loads)
+@ingestion-agent Ingest Confluence page 123456789
 @governance-agent Validate Confluence page 123456789
 ```
 

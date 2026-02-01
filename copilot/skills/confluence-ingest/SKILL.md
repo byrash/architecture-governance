@@ -11,12 +11,21 @@ Fetch Confluence pages and their attachments (including draw.io diagrams) for go
 
 1. **Dependencies** - Install from project requirements:
    ```bash
+   # Create virtual environment (recommended)
+   python3 -m venv .venv
+   source .venv/bin/activate
+   
+   # Install dependencies
    pip install -r requirements.txt
    ```
 
-2. **Environment variables** (set in `.env` or environment):
-   - `CONFLUENCE_URL` - Your Confluence instance URL (e.g., `https://company.atlassian.net`)
-   - `CONFLUENCE_API_TOKEN` - Personal Access Token (PAT)
+2. **Environment variables** - Create `.env` file in workspace root:
+   ```
+   CONFLUENCE_URL=https://your-company.atlassian.net
+   CONFLUENCE_API_TOKEN=your-personal-access-token
+   ```
+   
+   The script **auto-loads `.env`** from workspace root (no manual export needed).
 
 ## Usage
 

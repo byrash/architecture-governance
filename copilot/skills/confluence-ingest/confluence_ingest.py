@@ -13,6 +13,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Auto-load .env file if present
+try:
+    from dotenv import load_dotenv
+    # Look for .env in current dir or parent dirs
+    env_path = Path('.env')
+    if not env_path.exists():
+        # Try workspace root (for when running from skill folder)
+        for parent in Path.cwd().parents:
+            candidate = parent / '.env'
+            if candidate.exists():
+                env_path = candidate
+                break
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv not installed, rely on environment variables
+
 try:
     from atlassian import Confluence
     HAS_ATLASSIAN = True
