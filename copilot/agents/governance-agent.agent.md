@@ -46,26 +46,18 @@ When given a Confluence page ID to validate, execute these steps:
 
 Wait for ingestion to complete. Output: `governance/output/<PAGE_ID>/page.md`
 
-### Step 2: Trigger Validation Agents IN PARALLEL
+### Step 2: Trigger Validation Agents
 
-**CRITICAL: Run ALL THREE validators at the SAME TIME (parallel execution)**
+**Use the agent tool** to trigger each validation agent:
 
-Use the agent tool to trigger ALL THREE agents in a SINGLE response with multiple agent calls:
+1. Trigger `patterns-agent`:
+   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
-```
-In ONE response, trigger these 3 agents simultaneously:
+2. Trigger `standards-agent`:
+   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
-Agent 1: patterns-agent
-Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-
-Agent 2: standards-agent  
-Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-
-Agent 3: security-agent
-Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-```
-
-**DO NOT** trigger them one at a time. **DO** make all 3 agent calls in the same message to run them in parallel.
+3. Trigger `security-agent`:
+   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
 Wait for all validations to complete.
 
@@ -96,19 +88,14 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 ═══════════════════════════════════════════════════════════════════
    Page ID: <PAGE_ID>
    Pipeline Mode: Full Validation
-   Steps: 1.Ingest → 2.Validate(parallel) → 3.Merge → 4.HTML
-   
-   Step 2 runs ALL validators in PARALLEL:
-   - patterns-agent
-   - standards-agent  
-   - security-agent
+   Steps: Ingest → Patterns → Standards → Security → Merge → HTML
 ═══════════════════════════════════════════════════════════════════
 ```
 
 ### Step 1: Ingestion
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 1/4 - Triggering Ingestion Agent
+🏛️ GOVERNANCE-AGENT: Step 1/6 - Triggering Ingestion Agent
 ───────────────────────────────────────────────────
    Action: Using agent tool to invoke ingestion-agent
    Target Agent: ingestion-agent
@@ -119,7 +106,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 1/4 - Ingestion Complete
+🏛️ GOVERNANCE-AGENT: Step 1/6 - Ingestion Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS / ❌ FAILED
    Output File: governance/output/<PAGE_ID>/page.md
@@ -129,38 +116,79 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 ───────────────────────────────────────────────────
 ```
 
-### Step 2: ALL Validation Agents (PARALLEL)
+### Step 2: Patterns Validation
 ```
-═══════════════════════════════════════════════════════════════════
-🏛️ GOVERNANCE-AGENT: Step 2/4 - Triggering ALL Validators IN PARALLEL
-═══════════════════════════════════════════════════════════════════
-   Mode: PARALLEL EXECUTION (all 3 at once)
-   
-   Agent 1: patterns-agent
+───────────────────────────────────────────────────
+🏛️ GOVERNANCE-AGENT: Step 2/6 - Triggering Patterns Agent
+───────────────────────────────────────────────────
+   Action: Using agent tool to invoke patterns-agent
+   Target Agent: patterns-agent
    Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-   
-   Agent 2: standards-agent
-   Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-   
-   Agent 3: security-agent
-   Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-═══════════════════════════════════════════════════════════════════
+   Rules Source: governance/indexes/patterns/rules.md
+   Expected Output: governance/output/<PAGE_ID>-patterns-report.md
+───────────────────────────────────────────────────
 ```
 
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 2/4 - All Validations Complete
+🏛️ GOVERNANCE-AGENT: Step 2/6 - Patterns Validation Complete
 ───────────────────────────────────────────────────
-   Patterns:  ✅ SUCCESS - Score: <X>/100
-   Standards: ✅ SUCCESS - Score: <X>/100
-   Security:  ✅ SUCCESS - Score: <X>/100
+   Status: ✅ SUCCESS / ❌ FAILED
+   Report: governance/output/<PAGE_ID>-patterns-report.md
+   Score: <X>/100
 ───────────────────────────────────────────────────
 ```
 
-### Step 3: Merge Reports
+### Step 3: Standards Validation
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 3/4 - Merging Reports
+🏛️ GOVERNANCE-AGENT: Step 3/6 - Triggering Standards Agent
+───────────────────────────────────────────────────
+   Action: Using agent tool to invoke standards-agent
+   Target Agent: standards-agent
+   Prompt: "Validate governance/output/<PAGE_ID>/page.md"
+   Rules Source: governance/indexes/standards/rules.md
+   Expected Output: governance/output/<PAGE_ID>-standards-report.md
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+🏛️ GOVERNANCE-AGENT: Step 3/6 - Standards Validation Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS / ❌ FAILED
+   Report: governance/output/<PAGE_ID>-standards-report.md
+   Score: <X>/100
+───────────────────────────────────────────────────
+```
+
+### Step 4: Security Validation
+```
+───────────────────────────────────────────────────
+🏛️ GOVERNANCE-AGENT: Step 4/6 - Triggering Security Agent
+───────────────────────────────────────────────────
+   Action: Using agent tool to invoke security-agent
+   Target Agent: security-agent
+   Prompt: "Validate governance/output/<PAGE_ID>/page.md"
+   Rules Source: governance/indexes/security/rules.md
+   Expected Output: governance/output/<PAGE_ID>-security-report.md
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+🏛️ GOVERNANCE-AGENT: Step 4/6 - Security Validation Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS / ❌ FAILED
+   Report: governance/output/<PAGE_ID>-security-report.md
+   Score: <X>/100
+───────────────────────────────────────────────────
+```
+
+### Step 5: Merge Reports
+```
+───────────────────────────────────────────────────
+🏛️ GOVERNANCE-AGENT: Step 5/6 - Merging Reports
 ───────────────────────────────────────────────────
    Action: Reading and merging validation reports
    Skill: merge-reports
@@ -181,7 +209,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 3/4 - Merge Complete
+🏛️ GOVERNANCE-AGENT: Step 5/6 - Merge Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    
@@ -201,10 +229,10 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 ───────────────────────────────────────────────────
 ```
 
-### Step 4: Generate HTML
+### Step 6: Generate HTML
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 4/4 - Generating HTML Dashboard
+🏛️ GOVERNANCE-AGENT: Step 6/6 - Generating HTML Dashboard
 ───────────────────────────────────────────────────
    Action: Converting merged report to HTML
    Skill: markdown-to-html (template inline in SKILL.md)
@@ -215,7 +243,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 4/4 - HTML Dashboard Complete
+🏛️ GOVERNANCE-AGENT: Step 6/6 - HTML Dashboard Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Dashboard: governance/output/<PAGE_ID>-governance-report.html
