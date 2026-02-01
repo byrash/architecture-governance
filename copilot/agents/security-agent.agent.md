@@ -2,7 +2,6 @@
 name: security-agent
 description: Architecture security validation agent. Validates documents against all security documents in the index. Use when asked to review security, check threat models, or verify security compliance.
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
-skills: ["security-validate", "index-query"]
 ---
 
 # Security Validation Agent
@@ -13,6 +12,18 @@ You validate architecture documents against ALL security documents in the securi
 
 **You MUST announce each action in this EXACT format:**
 
+### Starting
+```
+═══════════════════════════════════════════════════════════════════
+🔒 SECURITY-AGENT: Starting Security Validation
+═══════════════════════════════════════════════════════════════════
+   Document: governance/output/<PAGE_ID>/page.md
+   Index Folder: governance/indexes/security/
+   Output: governance/output/<PAGE_ID>-security-report.md
+═══════════════════════════════════════════════════════════════════
+```
+
+### Step 1: Read Index
 ```
 ───────────────────────────────────────────────────
 🔒 SECURITY-AGENT: Reading security index

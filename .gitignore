@@ -8,7 +8,10 @@ governance/output/*
 !governance/output/.gitkeep
 
 # Constructed .github directory (created at runtime in Docker)
-.github/
+# But allow symlinks for VS Code/IDE compatibility
+.github/*
+!.github/agents
+!.github/skills
 
 # Python
 __pycache__/

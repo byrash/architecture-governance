@@ -214,6 +214,28 @@ From URL: `https://company.atlassian.net/wiki/spaces/SPACE/pages/123456789/Title
 
 Page ID = `123456789`
 
+### IDE Setup (VS Code / Cursor)
+
+The agents are stored in `copilot/` for Docker compatibility, but VS Code expects them in `.github/agents/`. Symlinks are provided:
+
+```
+.github/
+├── agents -> ../copilot/agents    # VS Code detects agents here
+└── skills -> ../copilot/skills    # Skills accessible here too
+```
+
+If symlinks are missing, create them:
+```bash
+mkdir -p .github
+ln -sf ../copilot/agents .github/agents
+ln -sf ../copilot/skills .github/skills
+```
+
+**Agent-to-Agent Triggering:**
+- The `governance-agent` uses **handoffs** (VS Code feature) to provide workflow buttons
+- It also uses the `agent` tool to programmatically invoke other agents
+- In VS Code, you'll see "Step 1: Ingest Page", "Step 2a: Validate Patterns", etc. buttons after responses
+
 ## Usage Examples
 
 ### Make Commands (Docker)
@@ -252,9 +274,13 @@ All outputs saved to `governance/output/`:
 ## Project Structure
 
 ```
-copilot/                        # Mounted as .github/ in Docker
+.github/                        # Symlinks for VS Code/IDE
+├── agents -> ../copilot/agents
+└── skills -> ../copilot/skills
+
+copilot/                        # Source files (mounted as .github/ in Docker)
 ├── agents/                     # AI agents
-│   ├── governance-agent.agent.md
+│   ├── governance-agent.agent.md   # Orchestrator with handoffs
 │   ├── ingestion-agent.agent.md
 │   ├── patterns-agent.agent.md
 │   ├── standards-agent.agent.md
@@ -262,6 +288,9 @@ copilot/                        # Mounted as .github/ in Docker
 │
 └── skills/                     # Reusable skills
     ├── confluence-ingest/      # Download pages + drawio→mermaid conversion
+    │   ├── SKILL.md
+    │   ├── confluence_ingest.py
+    │   └── drawio_to_mermaid.py
     ├── image-to-mermaid/       # Convert images (vision)
     ├── index-query/            # Read from indexes
     ├── pattern-validate/       # Validate patterns

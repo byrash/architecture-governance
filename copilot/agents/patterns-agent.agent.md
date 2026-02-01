@@ -2,7 +2,6 @@
 name: patterns-agent
 description: Architecture patterns validation agent. Validates documents against all pattern documents in the index. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
-skills: ["pattern-validate", "index-query"]
 ---
 
 # Patterns Validation Agent
@@ -13,6 +12,18 @@ You validate architecture documents against ALL pattern documents in the pattern
 
 **You MUST announce each action in this EXACT format:**
 
+### Starting
+```
+═══════════════════════════════════════════════════════════════════
+🔷 PATTERNS-AGENT: Starting Pattern Validation
+═══════════════════════════════════════════════════════════════════
+   Document: governance/output/<PAGE_ID>/page.md
+   Index Folder: governance/indexes/patterns/
+   Output: governance/output/<PAGE_ID>-patterns-report.md
+═══════════════════════════════════════════════════════════════════
+```
+
+### Step 1: Read Index
 ```
 ───────────────────────────────────────────────────
 🔷 PATTERNS-AGENT: Reading pattern index
