@@ -52,8 +52,8 @@ You validate architecture documents against ALL security documents in the securi
 ## Process
 
 Read and follow the skills:
-- `index-query` skill at `copilot/skills/index-query/SKILL.md` - for reading index
-- `security-validate` skill at `copilot/skills/security-validate/SKILL.md` - for validation logic
+- `index-query` skill at `.github/skills/index-query/SKILL.md` - for reading index
+- `security-validate` skill at `.github/skills/security-validate/SKILL.md` - for validation logic
 
 1. **List all .md files** in `governance/indexes/security/`
 2. **Read each file** to build the security knowledge base

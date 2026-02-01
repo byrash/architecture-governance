@@ -7,32 +7,37 @@ description: Ingest Confluence pages by page ID, downloading content and all att
 
 Fetch Confluence pages and their attachments (including draw.io diagrams) for governance analysis.
 
-## Prerequisites
+## Setup (First Run Only)
 
-1. **Dependencies** - Install from project requirements:
-   ```bash
-   # Create virtual environment (recommended)
-   python3 -m venv .venv
-   source .venv/bin/activate
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
+```bash
+# 1. Create virtual environment if not exists
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+fi
 
-2. **Environment variables** - Create `.env` file in workspace root:
-   ```
-   CONFLUENCE_URL=https://your-company.atlassian.net
-   CONFLUENCE_API_TOKEN=your-personal-access-token
-   ```
-   
-   The script **auto-loads `.env`** from workspace root (no manual export needed).
+# 2. Activate virtual environment
+source .venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+```
+
+## Environment Variables
+
+Create `.env` file in workspace root (auto-loaded by script):
+```
+CONFLUENCE_URL=https://your-company.atlassian.net
+CONFLUENCE_API_TOKEN=your-personal-access-token
+```
 
 ## Usage
 
 ### Ingest a page by ID
 
 ```bash
-python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
+# Activate venv and run
+source .venv/bin/activate
+python .github/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 ```
 
 Output is saved to `governance/output/<PAGE_ID>/`
@@ -67,12 +72,12 @@ export CONFLUENCE_URL="https://mycompany.atlassian.net"
 export CONFLUENCE_API_TOKEN="your-personal-access-token"
 
 # Ingest page
-python copilot/skills/confluence-ingest/confluence_ingest.py --page-id 123456789
+python .github/skills/confluence-ingest/confluence_ingest.py --page-id 123456789
 
 # Output saved to: governance/output/123456789/
 
 # Then convert any draw.io diagrams
-python copilot/skills/drawio-to-mermaid/drawio_to_mermaid.py \
+python .github/skills/drawio-to-mermaid/drawio_to_mermaid.py \
     --input governance/output/123456789/attachments/architecture.drawio \
     --output governance/output/123456789/architecture.mermaid.md
 ```

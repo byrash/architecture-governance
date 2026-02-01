@@ -250,7 +250,7 @@ All outputs saved to `governance/output/<PAGE_ID>/`:
 ## Project Structure
 
 ```
-copilot/
+copilot/                        # Mounted as .github/ in Docker
 ├── agents/                     # AI agents
 │   ├── governance-agent.agent.md
 │   ├── ingestion-agent.agent.md
@@ -270,10 +270,10 @@ copilot/
     └── markdown-to-html/       # Generate dashboard
 
 governance/
-├── indexes/                    # Knowledge base (add .md files here)
-│   ├── patterns/
-│   ├── standards/
-│   └── security/
+├── indexes/                    # Knowledge base
+│   ├── patterns/<PAGE_ID>-<title>.md
+│   ├── standards/<PAGE_ID>-<title>.md
+│   └── security/<PAGE_ID>-<title>.md
 │
 └── output/                     # Generated reports
     └── <PAGE_ID>/

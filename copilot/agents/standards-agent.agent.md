@@ -52,8 +52,8 @@ You validate architecture documents against ALL standards documents in the stand
 ## Process
 
 Read and follow the skills:
-- `index-query` skill at `copilot/skills/index-query/SKILL.md` - for reading index
-- `standards-validate` skill at `copilot/skills/standards-validate/SKILL.md` - for validation logic
+- `index-query` skill at `.github/skills/index-query/SKILL.md` - for reading index
+- `standards-validate` skill at `.github/skills/standards-validate/SKILL.md` - for validation logic
 
 1. **List all .md files** in `governance/indexes/standards/`
 2. **Read each file** to build the standards knowledge base

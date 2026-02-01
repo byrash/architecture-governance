@@ -52,8 +52,8 @@ You validate architecture documents against ALL pattern documents in the pattern
 ## Process
 
 Read and follow the skills:
-- `index-query` skill at `copilot/skills/index-query/SKILL.md` - for reading index
-- `pattern-validate` skill at `copilot/skills/pattern-validate/SKILL.md` - for validation logic
+- `index-query` skill at `.github/skills/index-query/SKILL.md` - for reading index
+- `pattern-validate` skill at `.github/skills/pattern-validate/SKILL.md` - for validation logic
 
 1. **List all .md files** in `governance/indexes/patterns/`
 2. **Read each file** to build the pattern knowledge base

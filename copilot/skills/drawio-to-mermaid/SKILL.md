@@ -10,7 +10,7 @@ Convert Draw.io (.drawio) files to Mermaid syntax using Python script + model en
 ## Usage
 
 ```bash
-python copilot/skills/drawio-to-mermaid/drawio_to_mermaid.py \
+python .github/skills/drawio-to-mermaid/drawio_to_mermaid.py \
     --input <diagram.drawio> \
     --output <output.mermaid.md>
 ```

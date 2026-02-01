@@ -16,5 +16,5 @@ services:
     volumes:
       - ./governance/output:/app/governance/output
       - ./governance/indexes:/app/governance/indexes
-      - ./copilot:/app/copilot:ro
+      - ./copilot:/app/.github:ro
     command: ["ingest"]

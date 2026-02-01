@@ -441,7 +441,7 @@ def ingest_page(page_id: str, include_children: bool = False,
     if drawio_files:
         print("\n📊 Draw.io diagrams found - convert with:", file=sys.stderr)
         for d in drawio_files:
-            print(f"   python copilot/skills/drawio-to-mermaid/drawio_to_mermaid.py \\", file=sys.stderr)
+            print(f"   python .github/skills/drawio-to-mermaid/drawio_to_mermaid.py \\", file=sys.stderr)
             print(f"       --input {d['path']} \\", file=sys.stderr)
             stem = Path(d['filename']).stem
             print(f"       --output {output_dir}/{stem}.mermaid.md", file=sys.stderr)

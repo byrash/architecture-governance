@@ -33,8 +33,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
 
-# Copy application files
-COPY copilot/ ./copilot/
+# Copy application files (copilot/ mounted as .github/ for Copilot CLI)
+COPY copilot/ ./.github/
 COPY governance/ ./governance/
 COPY entrypoint.sh ./
 

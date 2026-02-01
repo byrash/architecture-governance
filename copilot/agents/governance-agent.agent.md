@@ -95,14 +95,14 @@ Each agent knows:
 
 ### Step 3: Merge reports
 
-Read and follow the `merge-reports` skill at `copilot/skills/merge-reports/SKILL.md`
+Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL.md`
 
 - Input: Reports from governance/output/<PAGE_ID>/
 - Output: `governance/output/<PAGE_ID>/governance-report.md`
 
 ### Step 4: Generate HTML dashboard
 
-Read and follow the `markdown-to-html` skill at `copilot/skills/markdown-to-html/SKILL.md`
+Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html/SKILL.md`
 
 - Input: `governance/output/<PAGE_ID>/governance-report.md`
 - Output: `governance/output/<PAGE_ID>/governance-report.html`
