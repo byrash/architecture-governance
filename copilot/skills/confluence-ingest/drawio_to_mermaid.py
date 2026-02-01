@@ -34,53 +34,86 @@ def parse_drawio_xml(xml_content: str) -> Tuple[List[Dict], List[Dict]]:
     nodes = []
     edges = []
     
+    root = None
+    
+    # Try direct XML parsing first
     try:
         root = ET.fromstring(xml_content)
     except ET.ParseError:
-        # Try to find embedded diagram data
-        match = re.search(r'<diagram[^>]*>(.*?)</diagram>', xml_content, re.DOTALL)
-        if match:
-            diagram_data = match.group(1)
-            decoded = decode_drawio_data(diagram_data)
-            try:
-                root = ET.fromstring(decoded)
-            except Exception:
-                return nodes, edges
-        else:
-            return nodes, edges
+        pass
+    
+    # If direct parse failed or root has no mxCell children, try to find embedded diagram data
+    if root is None or not list(root.iter('mxCell')):
+        # Try multiple patterns for finding diagram data
+        patterns = [
+            r'<diagram[^>]*>(.*?)</diagram>',  # Standard diagram tag
+            r'<mxGraphModel[^>]*>.*?</mxGraphModel>',  # Direct mxGraphModel
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, xml_content, re.DOTALL)
+            for match_data in matches:
+                # If it's the diagram pattern, extract inner content
+                if '<diagram' in pattern:
+                    diagram_data = match_data
+                else:
+                    diagram_data = match_data
+                
+                # Try to decode if it looks encoded
+                if not diagram_data.strip().startswith('<'):
+                    decoded = decode_drawio_data(diagram_data)
+                else:
+                    decoded = diagram_data
+                
+                try:
+                    test_root = ET.fromstring(decoded)
+                    if list(test_root.iter('mxCell')):
+                        root = test_root
+                        break
+                except Exception:
+                    continue
+            
+            if root is not None:
+                break
+    
+    if root is None:
+        print("  ⚠ Could not parse draw.io XML structure", file=sys.stderr)
+        return nodes, edges
     
     # Find all mxCell elements
-    for cell in root.iter():
-        if cell.tag == 'mxCell':
-            cell_id = cell.get('id', '')
-            value = cell.get('value', '').strip()
-            source = cell.get('source')
-            target = cell.get('target')
-            
-            # Skip root and layer cells
-            if cell_id in ['0', '1'] or not value:
-                if source and target:
-                    # Edge without label
-                    edges.append({
-                        'source': source,
-                        'target': target,
-                        'label': ''
-                    })
-                continue
-            
-            if source and target:
-                # This is an edge
-                edges.append({
-                    'source': source,
-                    'target': target,
-                    'label': value
-                })
-            else:
-                # This is a node
+    for cell in root.iter('mxCell'):
+        cell_id = cell.get('id', '')
+        value = cell.get('value', '').strip()
+        source = cell.get('source')
+        target = cell.get('target')
+        style = cell.get('style', '')
+        
+        # Skip root and layer cells
+        if cell_id in ['0', '1']:
+            continue
+        
+        # Handle edges (connections)
+        if source and target:
+            edges.append({
+                'source': source,
+                'target': target,
+                'label': re.sub(r'<[^>]+>', '', value) if value else ''  # Strip HTML
+            })
+        elif value:
+            # This is a node with a label
+            clean_label = re.sub(r'<[^>]+>', '', value)  # Strip HTML
+            clean_label = clean_label.replace('&nbsp;', ' ').strip()
+            if clean_label:
                 nodes.append({
                     'id': cell_id,
-                    'label': re.sub(r'<[^>]+>', '', value)  # Strip HTML
+                    'label': clean_label
                 })
+        elif 'shape=' in style or 'rounded=' in style or 'ellipse' in style:
+            # This is a shape without a label - still include it
+            nodes.append({
+                'id': cell_id,
+                'label': f'Node_{cell_id}'
+            })
     
     return nodes, edges
 

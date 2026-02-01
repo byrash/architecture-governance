@@ -131,20 +131,53 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
                 confluence.download_attachments_from_page(
                     page_id, path=str(download_dir), filename=filename
                 )
-                attachment_map[filename] = filename  # Store relative path
                 
-                # Check if it's a Draw.io file (by extension or content)
-                if is_drawio_file(str(filepath)):
-                    drawio_files.append(filename)
-                    print(f"  {emoji} Downloaded (Draw.io): {filename}", file=sys.stderr)
+                # Verify the file was actually downloaded - check for exact name and tmp variants
+                actual_file = None
+                if filepath.exists():
+                    actual_file = filepath
                 else:
-                    print(f"  {emoji} Downloaded: {filename}", file=sys.stderr)
+                    # SDK may save with different names - scan directory for recent files
+                    for f in download_dir.iterdir():
+                        # Check for temp file variants or files containing the base name
+                        base_name = Path(filename).stem
+                        if f.name == filename or base_name in f.name:
+                            actual_file = f
+                            break
+                        # Also check for tmp files that might be draw.io content
+                        if f.name.startswith('tmp') and is_drawio_file(str(f)):
+                            # Rename tmp file to expected name
+                            new_path = download_dir / filename
+                            f.rename(new_path)
+                            actual_file = new_path
+                            print(f"  📝 Renamed temp file to: {filename}", file=sys.stderr)
+                            break
+                
+                if actual_file and actual_file.exists():
+                    attachment_map[filename] = filename  # Store relative path
+                    
+                    # Check if it's a Draw.io file (by extension or content)
+                    if is_drawio_file(str(actual_file)):
+                        drawio_files.append(filename)
+                        print(f"  {emoji} Downloaded (Draw.io): {filename}", file=sys.stderr)
+                    else:
+                        print(f"  {emoji} Downloaded: {filename}", file=sys.stderr)
+                else:
+                    print(f"  ⚠ Downloaded but file not found at expected path: {filename}", file=sys.stderr)
                     
             except Exception as e:
                 print(f"  ❌ Failed to download {filename}: {e}", file=sys.stderr)
     
     except Exception as e:
         print(f"Error fetching attachments: {e}", file=sys.stderr)
+    
+    # Final scan: check for any .drawio files we may have missed
+    for f in download_dir.iterdir():
+        if is_drawio_file(str(f)) and f.name not in drawio_files:
+            drawio_files.append(f.name)
+            if f.name not in attachment_map:
+                attachment_map[f.name] = f.name
+            print(f"  📊 Found additional Draw.io file: {f.name}", file=sys.stderr)
     
     return attachment_map, drawio_files
 
@@ -154,6 +187,7 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
     """
     Extract drawio diagram metadata and map to .drawio files or PNG previews.
     Returns dict mapping macro_id -> local filename (prioritizes .drawio files).
+    Also extracts embedded diagram data and saves as .drawio files.
     """
     diagram_map = {}
     
@@ -166,6 +200,9 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
     if data_divs:
         print(f"Found {len(data_divs)} drawio diagram data blocks", file=sys.stderr)
     
+    # Get list of all .drawio files from attachments
+    drawio_attachments = [f for f in attachment_map.keys() if f.lower().endswith('.drawio')]
+    
     for macro_id, base64_data in data_divs:
         try:
             # Decode the base64 metadata
@@ -177,25 +214,66 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
             template_url = metadata.get('templateUrl', '')
             diagram_name = template_url.split('/')[-1] if template_url else f"diagram_{macro_id}"
             
+            # Clean up diagram name
+            diagram_name = re.sub(r'[^\w\-_.]', '_', diagram_name)
+            
             # PRIORITY 1: Check if we have the actual .drawio file in attachments
             drawio_found = False
-            for filename in attachment_map:
-                if filename.endswith('.drawio'):
-                    if (diagram_name and diagram_name in filename) or macro_id in filename:
+            
+            # First try exact match by name
+            for filename in drawio_attachments:
+                base_name = Path(filename).stem.lower()
+                check_name = diagram_name.lower()
+                if base_name == check_name or check_name in base_name or base_name in check_name:
+                    diagram_map[macro_id] = filename
+                    print(f"  ✓ Matched .drawio file: {filename}", file=sys.stderr)
+                    drawio_found = True
+                    break
+            
+            # If only one drawio file and one diagram, assume they match
+            if not drawio_found and len(drawio_attachments) == 1 and len(data_divs) == 1:
+                filename = drawio_attachments[0]
+                diagram_map[macro_id] = filename
+                print(f"  ✓ Using single .drawio file: {filename}", file=sys.stderr)
+                drawio_found = True
+            
+            # If still not found, try to use any unmatched .drawio file
+            if not drawio_found:
+                for filename in drawio_attachments:
+                    if filename not in diagram_map.values():
                         diagram_map[macro_id] = filename
-                        print(f"  ✓ Using .drawio file: {filename}", file=sys.stderr)
+                        print(f"  ✓ Using available .drawio file: {filename}", file=sys.stderr)
                         drawio_found = True
                         break
             
             if drawio_found:
                 continue
             
-            # PRIORITY 2: Try to download the PNG preview if no .drawio file found
+            # PRIORITY 2: Try to download the actual .drawio file from diagramUrl
+            diagram_url = metadata.get('diagramUrl', '') or metadata.get('templateUrl', '')
+            if diagram_url and '.drawio' in diagram_url:
+                try:
+                    drawio_filename = f"{diagram_name}.drawio"
+                    drawio_path = download_dir / drawio_filename
+                    full_url = diagram_url if diagram_url.startswith('http') else f"{confluence.url}{diagram_url}"
+                    
+                    response = confluence._session.get(full_url)
+                    if response.status_code == 200 and len(response.content) > 0:
+                        with open(drawio_path, 'wb') as f:
+                            f.write(response.content)
+                        diagram_map[macro_id] = drawio_filename
+                        attachment_map[drawio_filename] = drawio_filename
+                        print(f"  ✓ Downloaded .drawio file: {drawio_filename}", file=sys.stderr)
+                        continue
+                except Exception as e:
+                    print(f"  ⚠ Failed to download .drawio: {e}", file=sys.stderr)
+            
+            # PRIORITY 3: Try to download the PNG preview if no .drawio file found
             if template_image_url:
                 try:
                     png_filename = f"{diagram_name}.png"
                     png_path = download_dir / png_filename
-                    full_url = f"{confluence.url}{template_image_url}"
+                    full_url = template_image_url if template_image_url.startswith('http') else f"{confluence.url}{template_image_url}"
                     
                     # Try using confluence client's session
                     response = confluence._session.get(full_url)
@@ -210,6 +288,11 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
         
         except Exception as e:
             print(f"  ⚠ Failed to parse diagram {macro_id}: {e}", file=sys.stderr)
+    
+    # Handle case where we have .drawio attachments but no macro data blocks
+    # (diagrams uploaded as attachments but not embedded via macro)
+    if not data_divs and drawio_attachments:
+        print(f"  📊 Found {len(drawio_attachments)} .drawio attachment(s) without macro data", file=sys.stderr)
     
     return diagram_map
 
@@ -395,31 +478,44 @@ def convert_html_to_markdown(html_content: str, attachment_map: Dict[str, str]) 
 
 def convert_drawio_to_mermaid(drawio_path: Path) -> Optional[str]:
     """Convert a Draw.io file to Mermaid using the local drawio_to_mermaid script."""
-    # Try to find the conversion script - check local directory first
+    # Try to find the conversion script - check multiple possible locations
     script_dir = Path(__file__).parent
+    workspace_root = Path.cwd()
+    
     script_paths = [
         script_dir / 'drawio_to_mermaid.py',  # Same directory as this script
         Path('.github/skills/confluence-ingest/drawio_to_mermaid.py'),
         Path('copilot/skills/confluence-ingest/drawio_to_mermaid.py'),
+        Path('governance/scripts/drawio_to_mermaid.py'),  # Legacy path
+        workspace_root / '.github/skills/confluence-ingest/drawio_to_mermaid.py',
+        workspace_root / 'copilot/skills/confluence-ingest/drawio_to_mermaid.py',
     ]
     
     script_path = None
     for p in script_paths:
         if p.exists():
             script_path = p
+            print(f"  📍 Using conversion script: {script_path}", file=sys.stderr)
             break
     
     if not script_path:
-        print("  ⚠ drawio_to_mermaid.py script not found", file=sys.stderr)
+        print("  ⚠ drawio_to_mermaid.py script not found in any of these locations:", file=sys.stderr)
+        for p in script_paths[:4]:
+            print(f"     - {p}", file=sys.stderr)
         return None
     
     try:
         result = subprocess.run(
             [sys.executable, str(script_path), '--input', str(drawio_path)],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True,
+            timeout=30  # Add timeout to prevent hanging
         )
         if result.stdout:
             return result.stdout.strip()
+        else:
+            print(f"  ⚠ No output from conversion script", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"  ✗ Conversion timed out after 30 seconds", file=sys.stderr)
     except subprocess.CalledProcessError as e:
         print(f"  ✗ Conversion failed: {e.stderr}", file=sys.stderr)
     except Exception as e:
@@ -518,6 +614,21 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         print("Warning: Page has no body content", file=sys.stderr)
         html_content = ""
     
+    # Debug: Check for images, SVGs and drawio elements
+    print("\n--- DEBUG: Checking page content ---", file=sys.stderr)
+    svg_count = len(re.findall(r'<svg[^>]*>', html_content, re.IGNORECASE))
+    img_count = len(re.findall(r'<img[^>]+>', html_content, re.IGNORECASE))
+    drawio_macros = re.findall(r'<div[^>]*class="[^"]*drawio-macro[^"]*"[^>]*>', html_content, re.IGNORECASE)
+    linked_resources = re.findall(r'data-linked-resource-default-alias="([^"]+)"', html_content)
+    ac_images = re.findall(r'<ac:image[^>]*>.*?</ac:image>', storage_content, re.DOTALL)
+    
+    print(f"  SVG elements: {svg_count}", file=sys.stderr)
+    print(f"  IMG elements: {img_count}", file=sys.stderr)
+    print(f"  DrawIO macro placeholders: {len(drawio_macros)}", file=sys.stderr)
+    print(f"  Linked resources: {linked_resources}", file=sys.stderr)
+    print(f"  ac:image macros in storage: {len(ac_images)}", file=sys.stderr)
+    print("--- END DEBUG ---\n", file=sys.stderr)
+    
     # Process Draw.io diagrams
     diagram_map = extract_drawio_diagrams(html_content, confluence, download_dir, attachment_map)
     html_content = replace_drawio_with_images(html_content, diagram_map, attachment_map)
@@ -544,28 +655,38 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     
     # Convert Draw.io diagrams to Mermaid
     diagram_mermaid_map = {}
-    if convert_diagrams and drawio_files:
-        print("\n--- Converting Draw.io diagrams to Mermaid ---", file=sys.stderr)
+    if convert_diagrams:
+        # Scan download directory for ALL .drawio files (more reliable than just drawio_files list)
+        all_drawio_files = []
+        if download_dir.exists():
+            all_drawio_files = [f.name for f in download_dir.iterdir() 
+                               if f.is_file() and (f.suffix.lower() == '.drawio' or is_drawio_file(str(f)))]
         
-        # Also check for any additional .drawio files
-        all_drawio_files = list(set(
-            drawio_files + [f for f in os.listdir(download_dir) if f.endswith('.drawio')]
-        ))
+        # Also include any from the drawio_files list that might have different paths
+        all_drawio_files = list(set(all_drawio_files + drawio_files))
         
-        for drawio_file in all_drawio_files:
-            drawio_path = download_dir / drawio_file
-            if not drawio_path.exists():
-                continue
+        if all_drawio_files:
+            print(f"\n--- Converting {len(all_drawio_files)} Draw.io diagram(s) to Mermaid ---", file=sys.stderr)
             
-            print(f"Converting: {drawio_file}", file=sys.stderr)
-            mermaid_code = convert_drawio_to_mermaid(drawio_path)
-            
-            if mermaid_code:
-                # Map both .drawio and .png versions
-                diagram_mermaid_map[drawio_file] = mermaid_code
-                png_name = os.path.splitext(drawio_file)[0] + '.png'
-                diagram_mermaid_map[png_name] = mermaid_code
-                print(f"  ✓ Converted {drawio_file} to Mermaid", file=sys.stderr)
+            for drawio_file in all_drawio_files:
+                drawio_path = download_dir / drawio_file
+                if not drawio_path.exists():
+                    print(f"  ⚠ File not found: {drawio_file}", file=sys.stderr)
+                    continue
+                
+                print(f"Converting: {drawio_file}", file=sys.stderr)
+                mermaid_code = convert_drawio_to_mermaid(drawio_path)
+                
+                if mermaid_code and "No diagram data extracted" not in mermaid_code:
+                    # Map both .drawio and .png versions
+                    diagram_mermaid_map[drawio_file] = mermaid_code
+                    png_name = os.path.splitext(drawio_file)[0] + '.png'
+                    diagram_mermaid_map[png_name] = mermaid_code
+                    print(f"  ✓ Converted {drawio_file} to Mermaid", file=sys.stderr)
+                else:
+                    print(f"  ⚠ No diagram data extracted from {drawio_file}", file=sys.stderr)
+        else:
+            print("\n--- No Draw.io diagrams found to convert ---", file=sys.stderr)
     
     # Inline Mermaid diagrams
     if diagram_mermaid_map:
