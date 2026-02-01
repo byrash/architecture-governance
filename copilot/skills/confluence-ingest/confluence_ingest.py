@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -649,6 +650,41 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     output_base = Path(output_dir)
     page_dir = output_base / page_id
     download_dir = page_dir / "attachments"
+    
+    # Clean up existing output if it exists (fresh ingestion)
+    cleaned_items = []
+    
+    # Remove page folder
+    if page_dir.exists():
+        try:
+            shutil.rmtree(page_dir)
+            cleaned_items.append(f"{page_id}/")
+        except Exception as e:
+            print(f"   ⚠ Could not remove {page_dir}: {e}", file=sys.stderr)
+    
+    # Remove associated report files
+    report_patterns = [
+        f"{page_id}-patterns-report.md",
+        f"{page_id}-standards-report.md",
+        f"{page_id}-security-report.md",
+        f"{page_id}-governance-report.md",
+        f"{page_id}-governance-report.html",
+    ]
+    
+    for report_name in report_patterns:
+        report_path = output_base / report_name
+        if report_path.exists():
+            try:
+                report_path.unlink()
+                cleaned_items.append(report_name)
+            except Exception as e:
+                print(f"   ⚠ Could not remove {report_name}: {e}", file=sys.stderr)
+    
+    if cleaned_items:
+        print(f"🧹 Cleaned existing output:", file=sys.stderr)
+        for item in cleaned_items:
+            print(f"   ✓ {item}", file=sys.stderr)
+    
     download_dir.mkdir(parents=True, exist_ok=True)
     page_dir.mkdir(parents=True, exist_ok=True)
     
