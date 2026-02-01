@@ -7,15 +7,15 @@ handoffs:
     agent: ingestion-agent
     prompt: "Ingest Confluence page <PAGE_ID> in governance mode"
     send: false
-  - label: "Step 2a: Validate Patterns"
+  - label: "Step 2: Validate Patterns"
     agent: patterns-agent
     prompt: "Validate governance/output/<PAGE_ID>/page.md"
     send: false
-  - label: "Step 2b: Validate Standards"
+  - label: "Step 3: Validate Standards"
     agent: standards-agent
     prompt: "Validate governance/output/<PAGE_ID>/page.md"
     send: false
-  - label: "Step 2c: Validate Security"
+  - label: "Step 4: Validate Security"
     agent: security-agent
     prompt: "Validate governance/output/<PAGE_ID>/page.md"
     send: false
@@ -46,22 +46,31 @@ When given a Confluence page ID to validate, execute these steps:
 
 Wait for ingestion to complete. Output: `governance/output/<PAGE_ID>/page.md`
 
-### Step 2: Trigger Validation Agents
+### Step 2: Trigger Patterns Agent
 
-**Use the agent tool** to trigger each validation agent:
+**Use the agent tool** to trigger `patterns-agent`:
+- Agent: `patterns-agent`
+- Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
-1. Trigger `patterns-agent`:
-   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
+Wait for validation to complete.
 
-2. Trigger `standards-agent`:
-   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
+### Step 3: Trigger Standards Agent
 
-3. Trigger `security-agent`:
-   - Prompt: `Validate governance/output/<PAGE_ID>/page.md`
+**Use the agent tool** to trigger `standards-agent`:
+- Agent: `standards-agent`
+- Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
-Wait for all validations to complete.
+Wait for validation to complete.
 
-### Step 3: Merge Reports
+### Step 4: Trigger Security Agent
+
+**Use the agent tool** to trigger `security-agent`:
+- Agent: `security-agent`
+- Prompt: `Validate governance/output/<PAGE_ID>/page.md`
+
+Wait for validation to complete.
+
+### Step 5: Merge Reports
 
 Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL.md`
 
@@ -69,7 +78,7 @@ Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL
 2. Calculate weighted score: `(Patterns × 0.30) + (Standards × 0.30) + (Security × 0.40)`
 3. Write merged report to `governance/output/<PAGE_ID>-governance-report.md`
 
-### Step 4: Generate HTML Dashboard
+### Step 6: Generate HTML Dashboard
 
 Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html/SKILL.md`
 
