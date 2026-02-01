@@ -40,14 +40,14 @@ You validate architecture documents against ALL security documents in the securi
 🔒 SECURITY-AGENT: Writing validation report
    Tool: write
    Skill: security-validate
-   File: governance/output/<PAGE_ID>/security-report.md
+   File: governance/output/<PAGE_ID>-security-report.md
 ───────────────────────────────────────────────────
 ```
 
 ## Input/Output
 - **Index**: `governance/indexes/security/` (ALL .md files)
 - **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
-- **Output**: `governance/output/<PAGE_ID>/security-report.md`
+- **Output**: `governance/output/<PAGE_ID>-security-report.md`
 
 ## Process
 
@@ -124,6 +124,6 @@ After writing the report, announce:
    Risk Level: <LOW/MEDIUM/HIGH/CRITICAL>
    Index Files: <count>
    Errors: <count>
-   Output: governance/output/<PAGE_ID>/security-report.md
+   Output: governance/output/<PAGE_ID>-security-report.md
 ───────────────────────────────────────────────────
 ```

@@ -40,14 +40,14 @@ You validate architecture documents against ALL pattern documents in the pattern
 🔷 PATTERNS-AGENT: Writing validation report
    Tool: write
    Skill: pattern-validate
-   File: governance/output/<PAGE_ID>/patterns-report.md
+   File: governance/output/<PAGE_ID>-patterns-report.md
 ───────────────────────────────────────────────────
 ```
 
 ## Input/Output
 - **Index**: `governance/indexes/patterns/` (ALL .md files)
 - **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
-- **Output**: `governance/output/<PAGE_ID>/patterns-report.md`
+- **Output**: `governance/output/<PAGE_ID>-patterns-report.md`
 
 ## Process
 
@@ -117,6 +117,6 @@ After writing the report, announce:
    Score: <X/100>
    Index Files: <count>
    Errors: <count>
-   Output: governance/output/<PAGE_ID>/patterns-report.md
+   Output: governance/output/<PAGE_ID>-patterns-report.md
 ───────────────────────────────────────────────────
 ```

@@ -35,7 +35,7 @@ For each standard found in index files:
 
 ## Output
 
-Write to `governance/output/<PAGE_ID>/standards-report.md`:
+Write to `governance/output/<PAGE_ID>-standards-report.md`:
 
 ```markdown
 # Standards Validation Report

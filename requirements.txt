@@ -12,6 +12,7 @@ lxml>=4.9.0
 
 # Markdown processing
 markdown>=3.5.0
+markdownify>=0.11.0
 
 # HTTP client
 requests>=2.31.0

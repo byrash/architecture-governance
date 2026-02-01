@@ -46,7 +46,7 @@ For each security control found in index files:
 
 ## Output
 
-Write to `governance/output/<PAGE_ID>/security-report.md`:
+Write to `governance/output/<PAGE_ID>-security-report.md`:
 
 ```markdown
 # Security Validation Report

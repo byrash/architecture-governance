@@ -40,14 +40,14 @@ You validate architecture documents against ALL standards documents in the stand
 📋 STANDARDS-AGENT: Writing validation report
    Tool: write
    Skill: standards-validate
-   File: governance/output/<PAGE_ID>/standards-report.md
+   File: governance/output/<PAGE_ID>-standards-report.md
 ───────────────────────────────────────────────────
 ```
 
 ## Input/Output
 - **Index**: `governance/indexes/standards/` (ALL .md files)
 - **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
-- **Output**: `governance/output/<PAGE_ID>/standards-report.md`
+- **Output**: `governance/output/<PAGE_ID>-standards-report.md`
 
 ## Process
 
@@ -107,6 +107,6 @@ After writing the report, announce:
    Score: <X/100>
    Index Files: <count>
    Errors: <count>
-   Output: governance/output/<PAGE_ID>/standards-report.md
+   Output: governance/output/<PAGE_ID>-standards-report.md
 ───────────────────────────────────────────────────
 ```

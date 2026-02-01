@@ -44,7 +44,7 @@ def parse_drawio_xml(xml_content: str) -> Tuple[List[Dict], List[Dict]]:
             decoded = decode_drawio_data(diagram_data)
             try:
                 root = ET.fromstring(decoded)
-            except:
+            except Exception:
                 return nodes, edges
         else:
             return nodes, edges
@@ -128,26 +128,25 @@ def convert_drawio_to_mermaid(input_path: Path) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Convert draw.io to Mermaid")
     parser.add_argument("--input", "-i", required=True, help="Input .drawio file")
-    parser.add_argument("--output", "-o", required=True, help="Output .mmd file")
+    parser.add_argument("--output", "-o", help="Output .mmd file (optional, prints to stdout if not provided)")
     args = parser.parse_args()
     
     input_path = Path(args.input)
-    output_path = Path(args.output)
     
     if not input_path.exists():
         print(f"Error: Input file not found: {input_path}", file=sys.stderr)
         sys.exit(1)
     
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    print(f"Converting {input_path} to Mermaid...", file=sys.stderr)
-    
     mermaid = convert_drawio_to_mermaid(input_path)
     
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(mermaid)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(mermaid)
+        print(f"Output written to {output_path}", file=sys.stderr)
     
-    print(f"Output written to {output_path}", file=sys.stderr)
+    # Always print to stdout for programmatic use
     print(mermaid)
 
 

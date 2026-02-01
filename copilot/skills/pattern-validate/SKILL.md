@@ -39,7 +39,7 @@ For each pattern found in index files:
 
 ## Output
 
-Write to `governance/output/<PAGE_ID>/patterns-report.md`:
+Write to `governance/output/<PAGE_ID>-patterns-report.md`:
 
 ```markdown
 # Pattern Validation Report

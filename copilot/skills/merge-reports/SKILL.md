@@ -9,10 +9,10 @@ Combine all validation reports into final governance report.
 
 ## Inputs
 
-From `governance/output/<PAGE_ID>/`:
-1. `patterns-report.md`
-2. `standards-report.md`
-3. `security-report.md`
+From `governance/output/`:
+1. `<PAGE_ID>-patterns-report.md`
+2. `<PAGE_ID>-standards-report.md`
+3. `<PAGE_ID>-security-report.md`
 
 ## Instructions
 
@@ -38,7 +38,7 @@ Security weighted highest (40%) due to criticality.
 
 ## Output
 
-Write to `governance/output/<PAGE_ID>/governance-report.md`:
+Write to `governance/output/<PAGE_ID>-governance-report.md`:
 
 ```markdown
 # Architecture Governance Report

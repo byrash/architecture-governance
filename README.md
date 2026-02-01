@@ -42,8 +42,7 @@ flowchart TB
 
     subgraph Ingestion[Ingestion Agent]
         IA[ingestion-agent]
-        CI[confluence-ingest]
-        DM[drawio-to-mermaid]
+        CI[confluence-ingest + drawio conversion]
         IM[image-to-mermaid]
     end
 
@@ -79,7 +78,6 @@ flowchart TB
 
     %% Ingestion flow
     IA --> CI
-    IA --> DM
     IA --> IM
     CI <-->|download| CONF
     IA -->|page.md| OUT
@@ -103,7 +101,7 @@ flowchart TB
 
 | Agent | Purpose | Skills Used |
 |-------|---------|-------------|
-| **ingestion-agent** | Downloads Confluence pages, converts diagrams to Mermaid | confluence-ingest, drawio-to-mermaid, image-to-mermaid |
+| **ingestion-agent** | Downloads Confluence pages, converts ALL diagrams/images to Mermaid | confluence-ingest (drawio auto), image-to-mermaid (PNG/JPG mandatory) |
 | **governance-agent** | Orchestrates full validation pipeline | merge-reports, markdown-to-html |
 | **patterns-agent** | Validates against design patterns | index-query, pattern-validate |
 | **standards-agent** | Validates against architectural standards | index-query, standards-validate |
@@ -130,7 +128,9 @@ sequenceDiagram
 
     User->>IA: Ingest page 123 to patterns
     IA->>Confluence: Download page + attachments
-    IA->>IA: Convert diagrams → Mermaid
+    IA->>IA: Convert Draw.io → Mermaid (auto)
+    IA->>IA: Convert images → Mermaid (vision)
+    IA->>IA: Validate 100% text/Mermaid
     IA->>Index: Copy page.md to indexes/patterns/
     IA-->>User: Indexed successfully
 ```
@@ -157,8 +157,10 @@ sequenceDiagram
     Note over GA,IA: Step 1: Ingestion
     GA->>IA: Ingest page
     IA->>IA: Download from Confluence
-    IA->>IA: Convert diagrams to Mermaid
-    IA-->>GA: page.md ready
+    IA->>IA: Convert Draw.io → Mermaid
+    IA->>IA: Convert images → Mermaid
+    IA->>IA: Validate 100% text
+    IA-->>GA: page.md ready (no images)
 
     Note over GA,SEA: Step 2: Parallel Validation
     par patterns
@@ -234,18 +236,18 @@ Page ID = `123456789`
 
 ## Output
 
-All outputs saved to `governance/output/<PAGE_ID>/`:
+All outputs saved to `governance/output/`:
 
 | File | Description |
 |------|-------------|
-| `page.md` | Clean markdown with Mermaid diagrams |
-| `metadata.json` | Page metadata from Confluence |
-| `attachments/` | Original downloaded files |
-| `patterns-report.md` | Pattern validation results |
-| `standards-report.md` | Standards validation results |
-| `security-report.md` | Security validation results |
-| `governance-report.md` | Merged final report |
-| `governance-report.html` | HTML dashboard |
+| `<PAGE_ID>/page.md` | Clean markdown with ALL diagrams as Mermaid (100% text) |
+| `<PAGE_ID>/metadata.json` | Page metadata from Confluence |
+| `<PAGE_ID>/attachments/` | Original downloaded files |
+| `<PAGE_ID>-patterns-report.md` | Pattern validation results |
+| `<PAGE_ID>-standards-report.md` | Standards validation results |
+| `<PAGE_ID>-security-report.md` | Security validation results |
+| `<PAGE_ID>-governance-report.md` | Merged final report |
+| `<PAGE_ID>-governance-report.html` | HTML dashboard |
 
 ## Project Structure
 
@@ -259,8 +261,7 @@ copilot/                        # Mounted as .github/ in Docker
 │   └── security-agent.agent.md
 │
 └── skills/                     # Reusable skills
-    ├── confluence-ingest/      # Download pages
-    ├── drawio-to-mermaid/      # Convert diagrams
+    ├── confluence-ingest/      # Download pages + drawio→mermaid conversion
     ├── image-to-mermaid/       # Convert images (vision)
     ├── index-query/            # Read from indexes
     ├── pattern-validate/       # Validate patterns
@@ -275,8 +276,12 @@ governance/
 │   ├── standards/<PAGE_ID>-<title>.md
 │   └── security/<PAGE_ID>-<title>.md
 │
-└── output/                     # Generated reports
-    └── <PAGE_ID>/
+└── output/                     # Generated outputs
+    ├── <PAGE_ID>/              # Page folder
+    │   ├── page.md
+    │   ├── metadata.json
+    │   └── attachments/
+    └── <PAGE_ID>-*-report.md   # Validation reports
 ```
 
 ## Scoring

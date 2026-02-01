@@ -9,7 +9,7 @@ Generate HTML dashboard from governance report.
 
 ## Input
 
-`governance/output/<PAGE_ID>/governance-report.md`
+`governance/output/<PAGE_ID>-governance-report.md`
 
 ## Instructions
 
@@ -20,7 +20,7 @@ Generate HTML dashboard from governance report.
 
 ## Output
 
-Write to `governance/output/<PAGE_ID>/governance-report.html`:
+Write to `governance/output/<PAGE_ID>-governance-report.html`:
 
 ```html
 <!DOCTYPE html>

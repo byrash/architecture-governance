@@ -2,7 +2,7 @@
 name: ingestion-agent
 description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
 tools: ["read", "write", "bash"]
-skills: ["confluence-ingest", "drawio-to-mermaid", "image-to-mermaid"]
+skills: ["confluence-ingest", "image-to-mermaid"]
 ---
 
 # Ingestion Agent
@@ -63,13 +63,11 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 │  │       ↓                                             │    │
 │  │  If links found → Go back to Step 1 for each link   │    │
 │  │       ↓                                             │    │
-│  │  Step 2: Convert drawio → mermaid                   │    │
+│  │  Step 2: Convert images → mermaid (MANDATORY)       │    │
 │  │       ↓                                             │    │
-│  │  Step 3: Convert images → mermaid                   │    │
+│  │  Step 3: Inline mermaid into page.md                │    │
 │  │       ↓                                             │    │
-│  │  Step 4: Inline all mermaid into page.md            │    │
-│  │       ↓                                             │    │
-│  │  Step 5: Validate completeness                      │    │
+│  │  Step 4: Validate completeness                      │    │
 │  │       ↓                                             │    │
 │  │  If validation fails → Loop back to fix             │    │
 │  │                                                     │    │
@@ -203,38 +201,34 @@ If the page has child pages that are referenced:
   [See section: Page Title (already included above)]
   ```
 
-### Step 2: Convert Draw.io Diagrams to Mermaid
-
-**Use skill**: `drawio-to-mermaid` at `.github/skills/drawio-to-mermaid/SKILL.md`
-
-For each `.drawio` file in `governance/output/<PAGE_ID>/attachments/`:
-1. Read the skill instructions
-2. Run the skill to convert drawio → mermaid
-3. Output saved to `governance/output/<PAGE_ID>/<file>.mermaid.md`
-
-### Step 3: Convert Images to Mermaid
+### Step 2: Convert ALL Images to Mermaid (MANDATORY)
 
 **Use skill**: `image-to-mermaid` at `.github/skills/image-to-mermaid/SKILL.md`
 
-For each image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
+**Note**: Draw.io diagrams are automatically converted to Mermaid by the confluence-ingest skill.
+
+**CRITICAL**: ALL remaining images MUST be converted to Mermaid. Validation agents cannot read image files - they need text/Mermaid content to compare against index rules.
+
+For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
 1. Read the skill instructions
-2. Use model vision to analyze image
-3. Generate equivalent Mermaid diagram
-4. Save for embedding in page.md
+2. Read the image file using vision
+3. Analyze the visual content
+4. Generate equivalent Mermaid diagram
+5. This is MANDATORY - do not skip any diagram images
 
-### Step 4: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
+### Step 3: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
 
-**CRITICAL**: Replace each diagram/image reference with mermaid **at the exact same location** in the document. The page structure must remain identical to Confluence - only the diagram/image format changes.
+**CRITICAL**: Replace ALL image references with mermaid **at the exact same location** in the document. The page structure must remain identical to Confluence - only the format changes from image to Mermaid.
 
-Read `governance/output/<PAGE_ID>/page.md` and replace ALL attachment references **in-place**:
+Read `governance/output/<PAGE_ID>/page.md` and replace ALL image references **in-place**:
 
 | Find | Replace With |
 |------|--------------|
-| `![...](attachments/*.drawio)` | Inline mermaid from Step 2 |
-| `![...](attachments/*.png)` | Inline mermaid from Step 3 |
-| `![...](attachments/*.jpg)` | Inline mermaid from Step 3 |
-| `![...](attachments/*.svg)` | Inline mermaid from Step 3 |
-| `<img src="attachments/...">` | Inline mermaid |
+| `![...](attachments/*.drawio)` | Already converted by confluence-ingest |
+| `![...](attachments/*.png)` | Inline mermaid from Step 2 |
+| `![...](attachments/*.jpg)` | Inline mermaid from Step 2 |
+| `![...](attachments/*.svg)` | Inline mermaid from Step 2 |
+| `![...](attachments/*.gif)` | Inline mermaid from Step 2 |
 
 **Example transformation:**
 
@@ -266,14 +260,14 @@ The diagram above shows...
 
 The surrounding text, headings, and document structure remain **exactly the same**.
 
-### Step 5: Validate Content Completeness
+### Step 4: Validate Content Completeness
 
-Scan final `page.md` and verify it renders EXACTLY like the Confluence page:
+Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 
 | Check | Status Required |
 |-------|-----------------|
-| `![...](...attachments...)` | ❌ NONE - all replaced with mermaid |
-| `<img src=...>` | ❌ NONE - all replaced with mermaid |
+| Draw.io references | ❌ NONE - all converted to Mermaid |
+| PNG/JPG/SVG images | ❌ NONE - all converted to Mermaid |
 | `/wiki/spaces/` links | ❌ NONE - all content inlined |
 | `atlassian.net/wiki/` links | ❌ NONE - all content inlined |
 | Tab content | ✅ ALL tabs included as sections |
@@ -281,26 +275,27 @@ Scan final `page.md` and verify it renders EXACTLY like the Confluence page:
 | Broken links | ❌ NONE remaining |
 
 **VALIDATION CHECKLIST** (all must be true):
-- [ ] Zero `![` image references to local files
-- [ ] Zero `<img` HTML tags pointing to attachments  
+- [ ] ZERO `![` image references remaining (all converted to Mermaid)
+- [ ] ZERO `<img` HTML tags remaining
+- [ ] ALL Draw.io diagrams converted to inline Mermaid blocks
+- [ ] ALL PNG/JPG/SVG images converted to inline Mermaid blocks
 - [ ] Zero Confluence page links (`/wiki/spaces/...`)
-- [ ] ALL diagrams converted to inline Mermaid blocks
 - [ ] ALL tab content present (not just first tab)
 - [ ] ALL linked page content inlined
 - [ ] Document structure matches original Confluence page exactly
-- [ ] Content is **self-sufficient** - renders fully without external access
+- [ ] Content is **100% text/Mermaid** - validation agents can read everything
 
-### Step 6: Save Final page.md
+### Step 5: Save Final page.md
 
 Write the cleaned content back to `governance/output/<PAGE_ID>/page.md`
 
-### Step 7: Copy to Index (Ingest Mode Only)
+### Step 6: Copy to Index (Ingest Mode Only)
 
 If index name was provided (`patterns`, `standards`, or `security`):
 
 1. Read `governance/output/<PAGE_ID>/metadata.json` to get the page title
 2. Create filename slug from title (lowercase, hyphens, alphanumeric only)
-3. Copy final page.md to index folder
+3. Copy final `<PAGE_ID>.md` to index folder
 
 **Filename format**: `<PAGE_ID>-<title-slug>.md`
 
@@ -331,14 +326,6 @@ If index name was provided (`patterns`, `standards`, or `security`):
 
 ```
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Converting Draw.io to Mermaid
-   Skill: drawio-to-mermaid
-   File: <filename>.drawio
-───────────────────────────────────────────────────
-```
-
-```
-───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Converting image to Mermaid
    Skill: image-to-mermaid
    File: <filename>.png
@@ -349,7 +336,7 @@ If index name was provided (`patterns`, `standards`, or `security`):
 ───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Copying to index
    From: governance/output/<PAGE_ID>/page.md
-   To: governance/indexes/<index>/<filename>.md
+   To: governance/indexes/<index>/<PAGE_ID>-<title>.md
 ───────────────────────────────────────────────────
 ```
 
@@ -367,9 +354,9 @@ If index name was provided (`patterns`, `standards`, or `security`):
    - Broken refs removed: <count>
    
    Validation:
+   - Image refs: 0 ✅ (all converted to Mermaid)
    - External links: 0 ✅
-   - Image refs: 0 ✅
-   - Self-sufficient: YES ✅
+   - 100% text/Mermaid: YES ✅
 ───────────────────────────────────────────────────
 ```
 
@@ -384,11 +371,11 @@ If index name was provided (`patterns`, `standards`, or `security`):
 | ALL tabs included | ✅ Every tab as a section, not just first tab |
 | ALL linked pages inlined | ✅ No external Confluence links |
 | ALL embedded content | ✅ Includes/excerpts fully expanded |
-| Draw.io diagrams | ✅ Converted to inline Mermaid (in-place) |
-| Images (PNG/JPG/SVG) | ✅ Converted to inline Mermaid (in-place) |
-| External dependencies | ✅ NONE - no image refs, no broken links |
+| Draw.io diagrams | ✅ Converted to inline Mermaid (automatic) |
+| Images (PNG/JPG/SVG) | ✅ Converted to inline Mermaid (via vision) |
+| External dependencies | ✅ NONE - no broken links, no images |
 | Confluence links | ✅ NONE - all content inlined |
-| Renders correctly | ✅ Any markdown viewer shows FULL content |
+| Validation ready | ✅ 100% text/Mermaid - models can read everything |
 
 **The final `page.md` is completely self-contained:**
 - Renders identically to the Confluence page

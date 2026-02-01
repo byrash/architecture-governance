@@ -28,7 +28,7 @@ You orchestrate the full governance validation pipeline by invoking other agents
    Agents: @patterns-agent, @standards-agent, @security-agent
    Action: Validate architecture against rules (parallel)
    Input: governance/output/<PAGE_ID>/page.md
-   Output: governance/output/<PAGE_ID>/*-report.md
+   Output: governance/output/<PAGE_ID>-*-report.md
 ═══════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════
@@ -36,15 +36,15 @@ You orchestrate the full governance validation pipeline by invoking other agents
    Skill: merge-reports
    Action: Combine validation reports, calculate weighted score
    Input: patterns-report.md, standards-report.md, security-report.md
-   Output: governance/output/<PAGE_ID>/governance-report.md
+   Output: governance/output/<PAGE_ID>-governance-report.md
 ═══════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════
 🏛️ GOVERNANCE-AGENT: Step 4 - Generate HTML Dashboard
    Skill: markdown-to-html
    Action: Convert merged report to HTML dashboard
-   Input: governance/output/<PAGE_ID>/governance-report.md
-   Output: governance/output/<PAGE_ID>/governance-report.html
+   Input: governance/output/<PAGE_ID>-governance-report.md
+   Output: governance/output/<PAGE_ID>-governance-report.html
 ═══════════════════════════════════════════════════
 ```
 
@@ -53,7 +53,7 @@ You orchestrate the full governance validation pipeline by invoking other agents
 ```
 governance-agent (this agent)
 ├── ingestion-agent
-│   └── skills: confluence-ingest, drawio-to-mermaid, image-to-mermaid
+│   └── skills: confluence-ingest (drawio built-in), image-to-mermaid
 ├── patterns-agent
 │   └── skills: pattern-validate, index-query
 ├── standards-agent
@@ -76,9 +76,11 @@ Invoke ingestion-agent to download and process the page:
 
 The ingestion-agent will:
 - Download page content and all attachments
-- Convert all .drawio diagrams to Mermaid
-- Convert all images (PNG, SVG) to Mermaid using vision
-- Output clean `governance/output/<PAGE_ID>/page.md` with inline Mermaid (no broken refs)
+- Convert all .drawio diagrams to Mermaid (automatic)
+- Convert all images (PNG, JPG, SVG) to Mermaid using vision (MANDATORY)
+- Output clean `governance/output/<PAGE_ID>/page.md` with 100% text/Mermaid (no images, no broken refs)
+
+**IMPORTANT**: Final page.md must have ZERO image references - all content must be text/Mermaid so validation agents can read and compare it.
 
 ### Step 2: Validate (parallel)
 
@@ -97,27 +99,27 @@ Each agent knows:
 
 Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL.md`
 
-- Input: Reports from governance/output/<PAGE_ID>/
-- Output: `governance/output/<PAGE_ID>/governance-report.md`
+- Input: Reports from governance/output/ (`<PAGE_ID>-*-report.md`)
+- Output: `governance/output/<PAGE_ID>-governance-report.md`
 
 ### Step 4: Generate HTML dashboard
 
 Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html/SKILL.md`
 
-- Input: `governance/output/<PAGE_ID>/governance-report.md`
-- Output: `governance/output/<PAGE_ID>/governance-report.html`
+- Input: `governance/output/<PAGE_ID>-governance-report.md`
+- Output: `governance/output/<PAGE_ID>-governance-report.html`
 
 ## Output Files
 
-All outputs in `governance/output/<PAGE_ID>/`:
-- `page.md` - Clean markdown with Mermaid diagrams (no broken refs)
-- `metadata.json` - Confluence page metadata
-- `attachments/` - Original downloaded files
-- `patterns-report.md` - Pattern validation results
-- `standards-report.md` - Standards validation results
-- `security-report.md` - Security validation results
-- `governance-report.md` - Merged final report
-- `governance-report.html` - HTML dashboard
+All outputs in `governance/output/`:
+- `<PAGE_ID>/page.md` - Clean markdown with Mermaid diagrams (no broken refs)
+- `<PAGE_ID>/metadata.json` - Confluence page metadata
+- `<PAGE_ID>/attachments/` - Original downloaded files
+- `<PAGE_ID>-patterns-report.md` - Pattern validation results
+- `<PAGE_ID>-standards-report.md` - Standards validation results
+- `<PAGE_ID>-security-report.md` - Security validation results
+- `<PAGE_ID>-governance-report.md` - Merged final report
+- `<PAGE_ID>-governance-report.html` - HTML dashboard
 
 ## Completion
 
@@ -128,6 +130,6 @@ After all steps complete, announce:
    Page ID: <PAGE_ID>
    Status: <PASS/FAIL>
    Overall Score: <X/100>
-   Reports: governance/output/<PAGE_ID>/
+   Reports: governance/output/<PAGE_ID>-*.md
 ═══════════════════════════════════════════════════
 ```

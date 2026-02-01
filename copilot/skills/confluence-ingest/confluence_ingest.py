@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 Confluence Page Ingester
-Fetches Confluence pages by ID and downloads all attachments including draw.io diagrams.
+Fetches Confluence pages by ID, downloads all attachments, converts diagrams to Mermaid,
+and produces a self-contained Markdown file.
 """
 
 import argparse
+import base64
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 # Auto-load .env file if present
 try:
@@ -19,7 +22,6 @@ try:
     # Look for .env in current dir or parent dirs
     env_path = Path('.env')
     if not env_path.exists():
-        # Try workspace root (for when running from skill folder)
         for parent in Path.cwd().parents:
             candidate = parent / '.env'
             if candidate.exists():
@@ -28,7 +30,7 @@ try:
     if env_path.exists():
         load_dotenv(env_path)
 except ImportError:
-    pass  # python-dotenv not installed, rely on environment variables
+    pass
 
 try:
     from atlassian import Confluence
@@ -42,11 +44,17 @@ try:
 except ImportError:
     HAS_BS4 = False
 
+try:
+    import markdownify
+    HAS_MARKDOWNIFY = True
+except ImportError:
+    HAS_MARKDOWNIFY = False
+
 
 def get_confluence_client() -> Optional[Confluence]:
-    """Create Confluence client from environment variables using PAT authentication."""
+    """Create Confluence client using PAT authentication."""
     url = os.environ.get("CONFLUENCE_URL")
-    token = os.environ.get("CONFLUENCE_API_TOKEN")
+    token = os.environ.get("CONFLUENCE_API_TOKEN") or os.environ.get("CONFLUENCE_TOKEN")
     
     if not url or not token:
         missing = []
@@ -61,159 +69,7 @@ def get_confluence_client() -> Optional[Confluence]:
     return Confluence(url=url, token=token)
 
 
-def html_to_markdown(html_content: str) -> str:
-    """Convert Confluence HTML content to Markdown."""
-    if not html_content:
-        return ""
-    
-    if not HAS_BS4:
-        # Basic fallback without BeautifulSoup
-        text = re.sub(r'<br\s*/?>', '\n', html_content)
-        text = re.sub(r'<p[^>]*>', '\n\n', text)
-        text = re.sub(r'</p>', '', text)
-        text = re.sub(r'<h([1-6])[^>]*>(.*?)</h\1>', lambda m: '#' * int(m.group(1)) + ' ' + m.group(2) + '\n', text)
-        text = re.sub(r'<li[^>]*>', '- ', text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        return text.strip()
-    
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Remove Confluence-specific elements
-    for element in soup.select('.confluence-embedded-file-wrapper, .expand-control'):
-        element.decompose()
-    
-    def process_element(element, depth=0):
-        """Recursively process HTML elements to Markdown."""
-        if element.name is None:
-            return str(element).strip()
-        
-        if element.name in ['script', 'style']:
-            return ''
-        
-        if element.name == 'h1':
-            return f"# {element.get_text().strip()}\n\n"
-        if element.name == 'h2':
-            return f"## {element.get_text().strip()}\n\n"
-        if element.name == 'h3':
-            return f"### {element.get_text().strip()}\n\n"
-        if element.name == 'h4':
-            return f"#### {element.get_text().strip()}\n\n"
-        if element.name == 'h5':
-            return f"##### {element.get_text().strip()}\n\n"
-        if element.name == 'h6':
-            return f"###### {element.get_text().strip()}\n\n"
-        
-        if element.name == 'p':
-            text = element.get_text().strip()
-            return f"{text}\n\n" if text else ""
-        
-        if element.name == 'br':
-            return "\n"
-        
-        if element.name == 'strong' or element.name == 'b':
-            return f"**{element.get_text().strip()}**"
-        
-        if element.name == 'em' or element.name == 'i':
-            return f"*{element.get_text().strip()}*"
-        
-        if element.name == 'code':
-            return f"`{element.get_text()}`"
-        
-        if element.name == 'pre':
-            code = element.get_text()
-            return f"```\n{code}\n```\n\n"
-        
-        if element.name == 'a':
-            href = element.get('href', '')
-            text = element.get_text().strip()
-            return f"[{text}]({href})"
-        
-        if element.name == 'ul':
-            items = []
-            for li in element.find_all('li', recursive=False):
-                items.append(f"- {li.get_text().strip()}")
-            return '\n'.join(items) + '\n\n'
-        
-        if element.name == 'ol':
-            items = []
-            for i, li in enumerate(element.find_all('li', recursive=False), 1):
-                items.append(f"{i}. {li.get_text().strip()}")
-            return '\n'.join(items) + '\n\n'
-        
-        if element.name == 'table':
-            return process_table(element)
-        
-        if element.name == 'img':
-            alt = element.get('alt', 'image')
-            src = element.get('src', '')
-            return f"![{alt}]({src})"
-        
-        if element.name == 'blockquote':
-            text = element.get_text().strip()
-            lines = text.split('\n')
-            return '\n'.join(f"> {line}" for line in lines) + '\n\n'
-        
-        # Default: process children
-        result = []
-        for child in element.children:
-            if hasattr(child, 'name'):
-                result.append(process_element(child, depth + 1))
-            elif str(child).strip():
-                result.append(str(child).strip())
-        return ' '.join(result)
-    
-    def process_table(table):
-        """Convert HTML table to Markdown table."""
-        rows = []
-        headers = []
-        
-        # Find headers
-        thead = table.find('thead')
-        if thead:
-            for th in thead.find_all('th'):
-                headers.append(th.get_text().strip())
-        
-        # Find body rows
-        tbody = table.find('tbody') or table
-        for tr in tbody.find_all('tr'):
-            cells = []
-            for td in tr.find_all(['td', 'th']):
-                cells.append(td.get_text().strip().replace('|', '\\|'))
-            if cells:
-                if not headers and tr.find('th'):
-                    headers = cells
-                else:
-                    rows.append(cells)
-        
-        if not headers and rows:
-            headers = rows.pop(0)
-        
-        if not headers:
-            return ""
-        
-        # Build markdown table
-        md = []
-        md.append('| ' + ' | '.join(headers) + ' |')
-        md.append('| ' + ' | '.join(['---'] * len(headers)) + ' |')
-        for row in rows:
-            # Pad row if needed
-            while len(row) < len(headers):
-                row.append('')
-            md.append('| ' + ' | '.join(row[:len(headers)]) + ' |')
-        
-        return '\n'.join(md) + '\n\n'
-    
-    # Process the content
-    body = soup.find('body') or soup
-    markdown = process_element(body)
-    
-    # Clean up
-    markdown = re.sub(r'\n{3,}', '\n\n', markdown)
-    return markdown.strip()
-
-
-def get_file_category(filename: str) -> tuple:
+def get_file_category(filename: str) -> Tuple[str, str]:
     """Categorize file by extension. Returns (category, emoji)."""
     lower = filename.lower()
     if lower.endswith('.drawio'):
@@ -226,113 +82,390 @@ def get_file_category(filename: str) -> tuple:
         return 'other', '📎'
 
 
-def download_attachments(confluence: Confluence, page_id: str, output_dir: Path) -> list:
-    """Download all attachments from a Confluence page to attachments folder."""
-    attachments_dir = output_dir / "attachments"
-    attachments_dir.mkdir(parents=True, exist_ok=True)
+def is_drawio_file(filepath: str) -> bool:
+    """Check if file is a Draw.io diagram by extension or content."""
+    if filepath.lower().endswith('.drawio'):
+        return True
     
-    downloaded = []
-    start = 0
-    limit = 50  # Confluence API pagination
+    # Check file content for Draw.io markers
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            first_chunk = f.read(500)
+            if '<mxfile' in first_chunk or '<mxGraphModel' in first_chunk:
+                return True
+    except Exception:
+        pass
+    
+    return False
+
+
+def download_attachments(confluence: Confluence, page_id: str, download_dir: Path) -> Tuple[Dict[str, str], List[str]]:
+    """
+    Download all attachments from a Confluence page.
+    Returns (attachment_map, drawio_files) where:
+      - attachment_map: filename -> local path mapping
+      - drawio_files: list of Draw.io filenames
+    """
+    attachment_map = {}
+    drawio_files = []
+    
+    print("Downloading attachments...", file=sys.stderr)
     
     try:
-        while True:
-            # Get attachments with pagination
-            attachments = confluence.get_attachments_from_content(
-                page_id, 
-                start=start, 
-                limit=limit
-            )
-            results = attachments.get('results', [])
+        attachments = confluence.get_attachments_from_content(page_id)
+        results = attachments.get('results', [])
+        
+        if not results:
+            print("No attachments found on this page.", file=sys.stderr)
+            return attachment_map, drawio_files
+        
+        print(f"Found {len(results)} attachment(s)", file=sys.stderr)
+        
+        for attachment in results:
+            filename = attachment.get('title', 'unknown')
+            _, emoji = get_file_category(filename)
+            filepath = download_dir / filename
             
-            if not results:
-                if start == 0:
-                    print("No attachments found on this page.", file=sys.stderr)
-                break
-            
-            if start == 0:
-                total = attachments.get('size', len(results))
-                print(f"Found {total} attachment(s)", file=sys.stderr)
-            
-            for attachment in results:
-                title = attachment.get('title', 'unknown')
-                download_link = attachment.get('_links', {}).get('download', '')
-                media_type = attachment.get('metadata', {}).get('mediaType', '')
+            try:
+                # Use native SDK method for download
+                confluence.download_attachments_from_page(
+                    page_id, path=str(download_dir), filename=filename
+                )
+                attachment_map[filename] = filename  # Store relative path
                 
-                if not download_link:
-                    print(f"  ⚠ Skipping {title}: no download link", file=sys.stderr)
-                    continue
-                
-                category, emoji = get_file_category(title)
-                output_path = attachments_dir / title
-                
-                try:
-                    content = confluence.get(download_link, not_json_response=True)
-                    with open(output_path, 'wb') as f:
-                        f.write(content)
+                # Check if it's a Draw.io file (by extension or content)
+                if is_drawio_file(str(filepath)):
+                    drawio_files.append(filename)
+                    print(f"  {emoji} Downloaded (Draw.io): {filename}", file=sys.stderr)
+                else:
+                    print(f"  {emoji} Downloaded: {filename}", file=sys.stderr)
                     
-                    print(f"  {emoji} Downloaded: {title}", file=sys.stderr)
-                    
-                    downloaded.append({
-                        'filename': title,
-                        'path': str(output_path),
-                        'size': len(content),
-                        'category': category,
-                        'media_type': media_type,
-                        'is_drawio': title.lower().endswith('.drawio'),
-                        'is_image': category == 'image'
-                    })
-                except Exception as e:
-                    print(f"  ❌ Failed to download {title}: {e}", file=sys.stderr)
-            
-            # Check for more pages
-            if len(results) < limit:
-                break
-            start += limit
+            except Exception as e:
+                print(f"  ❌ Failed to download {filename}: {e}", file=sys.stderr)
     
     except Exception as e:
         print(f"Error fetching attachments: {e}", file=sys.stderr)
     
-    # Print summary by category
-    if downloaded:
-        images = [d for d in downloaded if d['category'] == 'image']
-        diagrams = [d for d in downloaded if d['category'] == 'diagram']
-        docs = [d for d in downloaded if d['category'] == 'document']
-        others = [d for d in downloaded if d['category'] == 'other']
+    return attachment_map, drawio_files
+
+
+def extract_drawio_diagrams(html: str, confluence: Confluence,
+                            download_dir: Path, attachment_map: Dict[str, str]) -> Dict[str, str]:
+    """
+    Extract drawio diagram metadata and map to .drawio files or PNG previews.
+    Returns dict mapping macro_id -> local filename (prioritizes .drawio files).
+    """
+    diagram_map = {}
+    
+    # Find all drawio-macro-data divs with base64 metadata
+    data_divs = re.findall(
+        r'<div[^>]*id="drawio-macro-data-([^"]+)"[^>]*style="display:none"[^>]*>([^<]+)</div>',
+        html, re.IGNORECASE
+    )
+    
+    if data_divs:
+        print(f"Found {len(data_divs)} drawio diagram data blocks", file=sys.stderr)
+    
+    for macro_id, base64_data in data_divs:
+        try:
+            # Decode the base64 metadata
+            decoded = base64.b64decode(base64_data).decode('utf-8')
+            metadata = json.loads(decoded)
+            
+            # Look for template image URL (PNG preview)
+            template_image_url = metadata.get('templateImageLoadUrl', '')
+            template_url = metadata.get('templateUrl', '')
+            diagram_name = template_url.split('/')[-1] if template_url else f"diagram_{macro_id}"
+            
+            # PRIORITY 1: Check if we have the actual .drawio file in attachments
+            drawio_found = False
+            for filename in attachment_map:
+                if filename.endswith('.drawio'):
+                    if (diagram_name and diagram_name in filename) or macro_id in filename:
+                        diagram_map[macro_id] = filename
+                        print(f"  ✓ Using .drawio file: {filename}", file=sys.stderr)
+                        drawio_found = True
+                        break
+            
+            if drawio_found:
+                continue
+            
+            # PRIORITY 2: Try to download the PNG preview if no .drawio file found
+            if template_image_url:
+                try:
+                    png_filename = f"{diagram_name}.png"
+                    png_path = download_dir / png_filename
+                    full_url = f"{confluence.url}{template_image_url}"
+                    
+                    # Try using confluence client's session
+                    response = confluence._session.get(full_url)
+                    if response.status_code == 200 and len(response.content) > 0:
+                        with open(png_path, 'wb') as f:
+                            f.write(response.content)
+                        diagram_map[macro_id] = png_filename
+                        attachment_map[png_filename] = png_filename
+                        print(f"  ✓ Downloaded PNG preview: {png_filename}", file=sys.stderr)
+                except Exception as e:
+                    print(f"  ⚠ Failed to download preview: {e}", file=sys.stderr)
         
-        print(f"\nDownload summary:", file=sys.stderr)
-        if images:
-            print(f"  🖼️  Images: {len(images)}", file=sys.stderr)
-        if diagrams:
-            print(f"  📊 Diagrams: {len(diagrams)}", file=sys.stderr)
-        if docs:
-            print(f"  📄 Documents: {len(docs)}", file=sys.stderr)
-        if others:
-            print(f"  📎 Other: {len(others)}", file=sys.stderr)
+        except Exception as e:
+            print(f"  ⚠ Failed to parse diagram {macro_id}: {e}", file=sys.stderr)
     
-    return downloaded
+    return diagram_map
 
 
-def fetch_child_pages(confluence: Confluence, page_id: str) -> list:
-    """Get list of child pages."""
+def replace_drawio_with_images(html: str, diagram_map: Dict[str, str], 
+                                attachment_map: Dict[str, str]) -> str:
+    """Replace empty drawio-macro divs with actual img tags."""
+    if not HAS_BS4:
+        return html
+    
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Find all drawio-macro containers
+    for macro_div in soup.find_all('div', class_='drawio-macro'):
+        macro_id = macro_div.get('data-macroid', '')
+        
+        if macro_id in diagram_map:
+            img = soup.new_tag('img')
+            img['src'] = diagram_map[macro_id]
+            img['alt'] = f"Diagram {macro_id}"
+            img['style'] = "max-width: 100%; height: auto;"
+            macro_div.clear()
+            macro_div.append(img)
+        else:
+            # Check if there's an attachment that might be the diagram
+            found_attachment = None
+            for att_name in attachment_map:
+                if macro_id in att_name or att_name.endswith('.drawio') or 'diagram' in att_name.lower():
+                    found_attachment = att_name
+                    break
+            
+            if found_attachment and found_attachment.lower().endswith(('.png', '.jpg', '.svg')):
+                img = soup.new_tag('img')
+                img['src'] = found_attachment
+                img['alt'] = "Diagram"
+                img['style'] = "max-width: 100%; height: auto;"
+                macro_div.clear()
+                macro_div.append(img)
+            else:
+                # Add a placeholder message
+                placeholder = soup.new_tag('div')
+                placeholder['style'] = "border: 2px dashed #ccc; padding: 40px; text-align: center; color: #666; background: #f9f9f9; margin: 10px 0;"
+                placeholder.string = "📊 [Diagram Template - Edit in Confluence to add content]"
+                macro_div.clear()
+                macro_div.append(placeholder)
+    
+    # Remove the hidden data divs
+    for data_div in soup.find_all('div', id=re.compile(r'drawio-macro-data-')):
+        data_div.decompose()
+    
+    return str(soup)
+
+
+def extract_and_embed_images(storage_html: str, view_html: str, 
+                             attachment_map: Dict[str, str]) -> str:
+    """
+    Extract image references from storage format and embed local images in view HTML.
+    Replaces Confluence image URLs with local attachment paths.
+    """
+    if not HAS_BS4:
+        return view_html
+    
+    soup = BeautifulSoup(view_html, 'html.parser')
+    
+    # Process all img tags - replace Confluence URLs with local paths
+    for img in soup.find_all('img'):
+        src = img.get('src', '')
+        data_src = img.get('data-image-src', '')
+        
+        for attr_value in [src, data_src]:
+            if attr_value:
+                for filename in attachment_map:
+                    filename_patterns = [
+                        filename,
+                        filename.replace(' ', '%20'),
+                        filename.replace(' ', '+'),
+                    ]
+                    for pattern in filename_patterns:
+                        if pattern in attr_value:
+                            img['src'] = filename
+                            break
+    
+    # Handle span.confluence-embedded-file-wrapper
+    for wrapper in soup.find_all('span', class_='confluence-embedded-file-wrapper'):
+        img = wrapper.find('img')
+        if img:
+            src = img.get('src', '') or img.get('data-image-src', '')
+            for filename in attachment_map:
+                if filename in src or filename.replace(' ', '%20') in src:
+                    img['src'] = filename
+                    break
+    
+    return str(soup)
+
+
+def process_confluence_tabs(html: str) -> str:
+    """
+    Convert Confluence tabs macro to flat HTML sections.
+    Makes all tab content visible with section headers.
+    """
+    if not HAS_BS4:
+        return html
+    
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Find all auitabs containers
+    tabs_containers = soup.find_all('div', class_='aui-tabs')
+    
+    if tabs_containers:
+        print(f"Processing {len(tabs_containers)} tab container(s)...", file=sys.stderr)
+    
+    for container in tabs_containers:
+        # Remove the tabs-menu (clickable headers)
+        tabs_menu = container.find('ul', class_='tabs-menu')
+        if tabs_menu:
+            tabs_menu.decompose()
+        
+        # Find all tab panes and make them visible with headers
+        tab_panes = container.find_all('div', class_='tabs-pane')
+        
+        for pane in tab_panes:
+            title = pane.get('data-pane-title', 'Tab Content')
+            
+            # Remove display:none style
+            if pane.has_attr('style'):
+                style = pane['style']
+                style = style.replace('display: none;', '')
+                style = style.replace('display:none;', '')
+                pane['style'] = style
+            
+            # Remove unnecessary attributes
+            for attr in ['jwtdata', 'data-hasbody', 'data-macro-name', 'role']:
+                if pane.has_attr(attr):
+                    del pane[attr]
+            
+            # Create a header for this tab section
+            header = soup.new_tag('h3')
+            header.string = f"📑 {title}"
+            header['class'] = 'tab-section-header'
+            header['style'] = "background-color: #f0f0f0; padding: 10px; margin-top: 20px; border-left: 4px solid #0052cc;"
+            
+            pane.insert(0, header)
+            pane['class'] = pane.get('class', []) + ['tab-section-visible']
+            pane['style'] = "display: block; border: 1px solid #ddd; padding: 15px; margin-bottom: 20px;"
+    
+    # Remove jwtdata from any other elements
+    for elem in soup.find_all(attrs={'jwtdata': True}):
+        del elem['jwtdata']
+    
+    # Remove lazy-loading-div placeholders
+    for lazy_div in soup.find_all('div', class_='lazy-loading-div'):
+        lazy_div.decompose()
+    
+    return str(soup)
+
+
+def convert_html_to_markdown(html_content: str, attachment_map: Dict[str, str]) -> str:
+    """Convert HTML to Markdown using markdownify or fallback."""
+    if HAS_MARKDOWNIFY:
+        md_content = markdownify.markdownify(html_content, heading_style="ATX", bullets="-")
+    else:
+        # Basic fallback conversion
+        md_content = html_content
+        md_content = re.sub(r'<br\s*/?>', '\n', md_content)
+        md_content = re.sub(r'<p[^>]*>', '\n\n', md_content)
+        md_content = re.sub(r'</p>', '', md_content)
+        md_content = re.sub(r'<h([1-6])[^>]*>(.*?)</h\1>', 
+                           lambda m: '#' * int(m.group(1)) + ' ' + m.group(2) + '\n', md_content)
+        md_content = re.sub(r'<li[^>]*>', '- ', md_content)
+        md_content = re.sub(r'<[^>]+>', '', md_content)
+        md_content = re.sub(r'\n{3,}', '\n\n', md_content)
+    
+    # Fix remaining Confluence image references in markdown
+    for filename in attachment_map:
+        md_content = re.sub(
+            rf"!\[([^\]]*)\]\([^)]*?{re.escape(filename)}[^)]*?\)",
+            rf"![\1]({filename})",
+            md_content, flags=re.IGNORECASE
+        )
+    
+    return md_content.strip()
+
+
+def convert_drawio_to_mermaid(drawio_path: Path) -> Optional[str]:
+    """Convert a Draw.io file to Mermaid using the local drawio_to_mermaid script."""
+    # Try to find the conversion script - check local directory first
+    script_dir = Path(__file__).parent
+    script_paths = [
+        script_dir / 'drawio_to_mermaid.py',  # Same directory as this script
+        Path('.github/skills/confluence-ingest/drawio_to_mermaid.py'),
+        Path('copilot/skills/confluence-ingest/drawio_to_mermaid.py'),
+    ]
+    
+    script_path = None
+    for p in script_paths:
+        if p.exists():
+            script_path = p
+            break
+    
+    if not script_path:
+        print("  ⚠ drawio_to_mermaid.py script not found", file=sys.stderr)
+        return None
+    
     try:
-        children = confluence.get_page_child_by_type(page_id, type='page')
-        return [
-            {
-                'id': child['id'],
-                'title': child['title']
-            }
-            for child in children
-        ]
+        result = subprocess.run(
+            [sys.executable, str(script_path), '--input', str(drawio_path)],
+            capture_output=True, text=True, check=True
+        )
+        if result.stdout:
+            return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"  ✗ Conversion failed: {e.stderr}", file=sys.stderr)
     except Exception as e:
-        print(f"Error fetching child pages: {e}", file=sys.stderr)
-        return []
-
-
-def ingest_page(page_id: str, include_children: bool = False, 
-                skip_attachments: bool = False) -> dict:
-    """Ingest a Confluence page and its attachments."""
+        print(f"  ✗ Error: {e}", file=sys.stderr)
     
+    return None
+
+
+def inline_mermaid_diagrams(md_content: str, diagram_mermaid_map: Dict[str, str]) -> str:
+    """Replace image references with Mermaid code blocks inline."""
+    for filename, mermaid_code in diagram_mermaid_map.items():
+        # Match both formats: ![alt](path/file.png) and ![alt](file.png)
+        pattern = rf"!\[[^\]]*\]\([^)]*{re.escape(filename)}\)"
+        if re.search(pattern, md_content):
+            md_content = re.sub(pattern, f"\n{mermaid_code}\n", md_content, count=1)
+            print(f"  ✓ Replaced {filename} with Mermaid", file=sys.stderr)
+    
+    return md_content
+
+
+def fix_image_paths(md_content: str, attachments_folder: str) -> str:
+    """Fix image references to include the attachments folder prefix."""
+    # Pattern: ![anything](filename.ext) -> ![anything](attachments_folder/filename.ext)
+    # Skip if already has the attachments prefix
+    md_content = re.sub(
+        rf"!\[([^\]]*)\]\((?!{re.escape(attachments_folder)}/)([^/)][^)]*\.(png|jpg|jpeg|gif|svg|drawio))\)",
+        rf"![\1]({attachments_folder}/\2)",
+        md_content, flags=re.IGNORECASE
+    )
+    return md_content
+
+
+def ingest_page(page_id: str, output_dir: str = "governance/output",
+                convert_diagrams: bool = True, mode: str = "governance") -> dict:
+    """
+    Ingest a Confluence page and produce a self-contained Markdown file.
+    
+    Args:
+        page_id: Confluence page ID
+        output_dir: Base output directory
+        convert_diagrams: Whether to convert Draw.io diagrams to Mermaid
+        mode: 'governance' or 'index' mode
+    
+    Returns:
+        Dict with metadata, paths, and attachments info
+    """
     if not HAS_ATLASSIAN:
         print("Error: atlassian-python-api not installed.", file=sys.stderr)
         print("Install with: pip install atlassian-python-api", file=sys.stderr)
@@ -342,126 +475,152 @@ def ingest_page(page_id: str, include_children: bool = False,
     if not confluence:
         sys.exit(1)
     
-    # Output to governance/output/<page_id>/
-    output_dir = Path("governance/output") / page_id
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create output directories: governance/output/<PAGE_ID>/
+    output_base = Path(output_dir)
+    page_dir = output_base / page_id
+    download_dir = page_dir / "attachments"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    page_dir.mkdir(parents=True, exist_ok=True)
     
+    # Fetch page content
     print(f"Fetching page {page_id}...", file=sys.stderr)
     
     try:
-        # Get page content with body
-        page = confluence.get_page_by_id(
-            page_id,
-            expand='body.storage,version,space,ancestors'
-        )
+        page = confluence.get_page_by_id(page_id, expand='body.storage,body.view,version,space,ancestors')
     except Exception as e:
         print(f"Error fetching page: {e}", file=sys.stderr)
         sys.exit(1)
     
+    title = page.get('title', 'Untitled')
+    print(f"Page: {title}", file=sys.stderr)
+    
     # Extract metadata
     metadata = {
         'id': page.get('id'),
-        'title': page.get('title'),
+        'title': title,
         'space': page.get('space', {}).get('key'),
         'space_name': page.get('space', {}).get('name'),
         'version': page.get('version', {}).get('number'),
-        'created_by': page.get('version', {}).get('by', {}).get('displayName'),
         'last_modified': page.get('version', {}).get('when'),
         'url': page.get('_links', {}).get('webui', ''),
         'ingested_at': datetime.now().isoformat()
     }
     
-    # Get ancestors (breadcrumb)
-    ancestors = page.get('ancestors', [])
-    metadata['ancestors'] = [
-        {'id': a.get('id'), 'title': a.get('title')} 
-        for a in ancestors
-    ]
+    # Download attachments
+    attachment_map, drawio_files = download_attachments(confluence, page_id, download_dir)
     
-    print(f"Page: {metadata['title']}", file=sys.stderr)
-    print(f"Space: {metadata['space_name']} ({metadata['space']})", file=sys.stderr)
+    # Get HTML content - prefer view format for better rendering
+    storage_content = page.get('body', {}).get('storage', {}).get('value', '')
+    view_content = page.get('body', {}).get('view', {}).get('value', '')
+    html_content = view_content if view_content else storage_content
     
-    # Convert HTML body to Markdown
-    html_body = page.get('body', {}).get('storage', {}).get('value', '')
-    markdown_content = html_to_markdown(html_body)
+    if not html_content:
+        print("Warning: Page has no body content", file=sys.stderr)
+        html_content = ""
     
-    # Build output Markdown
-    md_output = []
-    md_output.append(f"# {metadata['title']}")
-    md_output.append("")
-    md_output.append(f"**Source**: Confluence - {metadata['space_name']}")
-    md_output.append(f"**Page ID**: {metadata['id']}")
-    md_output.append(f"**Last Modified**: {metadata['last_modified']}")
-    md_output.append(f"**Ingested**: {metadata['ingested_at']}")
-    md_output.append("")
-    md_output.append("---")
-    md_output.append("")
-    md_output.append(markdown_content)
+    # Process Draw.io diagrams
+    diagram_map = extract_drawio_diagrams(html_content, confluence, download_dir, attachment_map)
+    html_content = replace_drawio_with_images(html_content, diagram_map, attachment_map)
     
-    # Save Markdown
-    md_path = output_dir / "page.md"
-    with open(md_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(md_output))
-    print(f"✅ Saved page content to {md_path}", file=sys.stderr)
+    # Embed local images
+    html_content = extract_and_embed_images(storage_content, html_content, attachment_map)
     
-    # Save metadata
-    meta_path = output_dir / "metadata.json"
+    # Process Confluence tabs
+    html_content = process_confluence_tabs(html_content)
+    
+    # Save intermediate HTML (useful for debugging)
+    html_filename = f"{title.replace('/', '_').replace(' ', '_')}.html"
+    html_path = page_dir / html_filename
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>{title}</title></head>
+<body><h1>{title}</h1>{html_content}</body>
+</html>""")
+    
+    # Convert to Markdown
+    md_content = convert_html_to_markdown(html_content, attachment_map)
+    md_content = f"# {title}\n\n{md_content}"
+    
+    # Convert Draw.io diagrams to Mermaid
+    diagram_mermaid_map = {}
+    if convert_diagrams and drawio_files:
+        print("\n--- Converting Draw.io diagrams to Mermaid ---", file=sys.stderr)
+        
+        # Also check for any additional .drawio files
+        all_drawio_files = list(set(
+            drawio_files + [f for f in os.listdir(download_dir) if f.endswith('.drawio')]
+        ))
+        
+        for drawio_file in all_drawio_files:
+            drawio_path = download_dir / drawio_file
+            if not drawio_path.exists():
+                continue
+            
+            print(f"Converting: {drawio_file}", file=sys.stderr)
+            mermaid_code = convert_drawio_to_mermaid(drawio_path)
+            
+            if mermaid_code:
+                # Map both .drawio and .png versions
+                diagram_mermaid_map[drawio_file] = mermaid_code
+                png_name = os.path.splitext(drawio_file)[0] + '.png'
+                diagram_mermaid_map[png_name] = mermaid_code
+                print(f"  ✓ Converted {drawio_file} to Mermaid", file=sys.stderr)
+    
+    # Inline Mermaid diagrams
+    if diagram_mermaid_map:
+        print(f"\n🔄 Replacing {len(diagram_mermaid_map)} diagram references with Mermaid...", file=sys.stderr)
+        md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
+    
+    # Fix image paths to include attachments folder prefix
+    attachments_folder = "attachments"
+    md_content = fix_image_paths(md_content, attachments_folder)
+    
+    # Save final Markdown to page folder
+    final_md_path = page_dir / "page.md"
+    with open(final_md_path, 'w', encoding='utf-8') as f:
+        f.write(md_content)
+    
+    # Save metadata to page folder
+    metadata['attachments'] = list(attachment_map.keys())
+    metadata['drawio_files'] = drawio_files
+    metadata['converted_diagrams'] = list(diagram_mermaid_map.keys())
+    
+    meta_path = page_dir / "metadata.json"
     with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
-    print(f"✅ Saved metadata to {meta_path}", file=sys.stderr)
     
-    # Download attachments
-    attachments = []
-    if not skip_attachments:
-        print("\nDownloading attachments...", file=sys.stderr)
-        attachments = download_attachments(confluence, page_id, output_dir)
-        metadata['attachments'] = attachments
-        
-        # Update metadata with attachments info
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, indent=2)
+    # Print summary
+    remaining_images = len(re.findall(r'!\[[^\]]*\]\([^)]*\.(png|jpg|jpeg)\)', md_content))
+    mermaid_count = len(re.findall(r'```mermaid', md_content))
     
-    # Get child pages
-    children = []
-    if include_children:
-        print("\nFetching child pages...", file=sys.stderr)
-        children = fetch_child_pages(confluence, page_id)
-        if children:
-            print(f"Found {len(children)} child page(s):", file=sys.stderr)
-            for child in children:
-                print(f"  • {child['title']} (ID: {child['id']})", file=sys.stderr)
-            metadata['children'] = children
-            
-            # Update metadata with children
-            with open(meta_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=2)
-    
-    # Report draw.io diagrams for conversion
-    drawio_files = [a for a in attachments if a.get('is_drawio')]
-    if drawio_files:
-        print("\n📊 Draw.io diagrams found - convert with:", file=sys.stderr)
-        for d in drawio_files:
-            print(f"   python .github/skills/drawio-to-mermaid/drawio_to_mermaid.py \\", file=sys.stderr)
-            print(f"       --input {d['path']} \\", file=sys.stderr)
-            stem = Path(d['filename']).stem
-            print(f"       --output {output_dir}/{stem}.mermaid.md", file=sys.stderr)
+    print("\n✅ Ingestion complete!", file=sys.stderr)
+    print(f"   Final output: {final_md_path}", file=sys.stderr)
+    print(f"   Attachments: {download_dir}", file=sys.stderr)
+    if mermaid_count > 0:
+        print(f"   ✅ Converted {mermaid_count} diagram(s) to Mermaid", file=sys.stderr)
+    if remaining_images > 0:
+        print(f"   📋 {remaining_images} image reference(s) remain (non-diagram images)", file=sys.stderr)
     
     return {
         'metadata': metadata,
-        'markdown_path': str(md_path),
-        'attachments': attachments,
-        'children': children
+        'page_dir': str(page_dir),
+        'markdown_path': str(final_md_path),
+        'attachments_dir': str(download_dir),
+        'attachments': list(attachment_map.keys()),
+        'drawio_files': drawio_files,
+        'mermaid_diagrams': len(diagram_mermaid_map)
     }
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Ingest Confluence pages and attachments",
+        description="Ingest Confluence page and convert to self-contained Markdown",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Environment Variables:
-  CONFLUENCE_URL        Your Confluence instance URL
-  CONFLUENCE_API_TOKEN  Personal Access Token (PAT)
+  CONFLUENCE_URL          Your Confluence instance URL
+  CONFLUENCE_API_TOKEN    Personal Access Token (PAT)
 
 Example:
   export CONFLUENCE_URL="https://company.atlassian.net"
@@ -476,28 +635,35 @@ Example:
         help="Confluence page ID to ingest"
     )
     parser.add_argument(
-        "--include-children",
-        action="store_true",
-        help="Also list child pages (doesn't download them)"
+        "--output-dir", "-o",
+        default="governance/output",
+        help="Output directory (default: governance/output)"
     )
     parser.add_argument(
-        "--skip-attachments",
+        "--no-convert",
         action="store_true",
-        help="Skip downloading attachments"
+        help="Skip diagram conversion to Mermaid"
+    )
+    parser.add_argument(
+        "--mode", "-m",
+        choices=["governance", "index"],
+        default="governance",
+        help="Mode: 'governance' for validation, 'index' for rule indexing (default: governance)"
     )
     
     args = parser.parse_args()
     
     result = ingest_page(
         page_id=args.page_id,
-        include_children=args.include_children,
-        skip_attachments=args.skip_attachments
+        output_dir=args.output_dir,
+        convert_diagrams=not args.no_convert,
+        mode=args.mode
     )
     
-    print("\n✅ Ingestion complete!", file=sys.stderr)
-    print(f"   Markdown: {result['markdown_path']}", file=sys.stderr)
-    print(f"   Attachments: {len(result['attachments'])}", file=sys.stderr)
+    # Print result as JSON for programmatic use
+    print(json.dumps(result, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
