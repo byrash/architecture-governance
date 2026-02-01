@@ -101,7 +101,7 @@ def is_drawio_file(filepath: str) -> bool:
 
 def download_attachments(confluence: Confluence, page_id: str, download_dir: Path) -> Tuple[Dict[str, str], List[str]]:
     """
-    Download all attachments from a Confluence page.
+    Download all attachments from a Confluence page (latest version only).
     Returns (attachment_map, drawio_files) where:
       - attachment_map: filename -> local path mapping
       - drawio_files: list of Draw.io filenames
@@ -119,14 +119,63 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
             print("No attachments found on this page.", file=sys.stderr)
             return attachment_map, drawio_files
         
-        print(f"Found {len(results)} attachment(s)", file=sys.stderr)
+        # Group by filename and keep only latest version
+        # Skip backup files and unnecessary file types
+        latest_attachments = {}
+        skipped_files = {'backup': 0, 'unnecessary': 0}
+        
+        # File extensions we actually need (diagrams and images for Mermaid conversion)
+        needed_extensions = {'.drawio', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
         
         for attachment in results:
             filename = attachment.get('title', 'unknown')
+            lower_filename = filename.lower()
+            
+            # Skip backup and temp files
+            if filename.startswith('drawio-backup-') or filename.startswith('tmp') or filename.startswith('~'):
+                skipped_files['backup'] += 1
+                continue
+            
+            # Skip unnecessary file types (PDFs, docs, spreadsheets, etc.)
+            file_ext = Path(filename).suffix.lower()
+            # Also check if it might be a drawio without extension (will check content later)
+            has_needed_ext = file_ext in needed_extensions or file_ext == ''
+            
+            if not has_needed_ext:
+                skipped_files['unnecessary'] += 1
+                print(f"  ⏭️  Skipping (not needed): {filename}", file=sys.stderr)
+                continue
+            
+            version = attachment.get('version', {}).get('number', 1)
+            
+            if filename not in latest_attachments or version > latest_attachments[filename]['version']:
+                latest_attachments[filename] = {
+                    'attachment': attachment,
+                    'version': version
+                }
+        
+        if skipped_files['backup'] > 0:
+            print(f"Skipped {skipped_files['backup']} backup/temp file(s)", file=sys.stderr)
+        if skipped_files['unnecessary'] > 0:
+            print(f"Skipped {skipped_files['unnecessary']} unnecessary file(s) (PDFs, docs, etc.)", file=sys.stderr)
+        
+        print(f"Found {len(latest_attachments)} unique attachment(s) (filtered from {len(results)} total versions)", file=sys.stderr)
+        
+        for filename, data in latest_attachments.items():
+            attachment = data['attachment']
+            version = data['version']
             _, emoji = get_file_category(filename)
             filepath = download_dir / filename
             
             try:
+                # Skip if already downloaded (avoid re-downloading)
+                if filepath.exists():
+                    print(f"  {emoji} Already exists: {filename} (v{version})", file=sys.stderr)
+                    attachment_map[filename] = filename
+                    if is_drawio_file(str(filepath)):
+                        drawio_files.append(filename)
+                    continue
+                
                 # Use native SDK method for download
                 confluence.download_attachments_from_page(
                     page_id, path=str(download_dir), filename=filename
@@ -154,14 +203,26 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
                             break
                 
                 if actual_file and actual_file.exists():
-                    attachment_map[filename] = filename  # Store relative path
-                    
                     # Check if it's a Draw.io file (by extension or content)
-                    if is_drawio_file(str(actual_file)):
-                        drawio_files.append(filename)
-                        print(f"  {emoji} Downloaded (Draw.io): {filename}", file=sys.stderr)
+                    is_drawio = is_drawio_file(str(actual_file))
+                    
+                    # If it's a drawio file but missing .drawio extension, rename it
+                    final_filename = filename
+                    if is_drawio and not filename.lower().endswith('.drawio'):
+                        new_filename = filename + '.drawio'
+                        new_path = download_dir / new_filename
+                        actual_file.rename(new_path)
+                        actual_file = new_path
+                        final_filename = new_filename
+                        print(f"  📝 Added .drawio extension: {filename} → {new_filename}", file=sys.stderr)
+                    
+                    attachment_map[final_filename] = final_filename  # Store relative path
+                    
+                    if is_drawio:
+                        drawio_files.append(final_filename)
+                        print(f"  {emoji} Downloaded (Draw.io): {final_filename} (v{version})", file=sys.stderr)
                     else:
-                        print(f"  {emoji} Downloaded: {filename}", file=sys.stderr)
+                        print(f"  {emoji} Downloaded: {final_filename} (v{version})", file=sys.stderr)
                 else:
                     print(f"  ⚠ Downloaded but file not found at expected path: {filename}", file=sys.stderr)
                     
@@ -172,12 +233,25 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
         print(f"Error fetching attachments: {e}", file=sys.stderr)
     
     # Final scan: check for any .drawio files we may have missed
+    # Skip backup files in final scan too
     for f in download_dir.iterdir():
+        # Skip backup and temp files
+        if f.name.startswith('drawio-backup-') or f.name.startswith('tmp') or f.name.startswith('~'):
+            continue
         if is_drawio_file(str(f)) and f.name not in drawio_files:
-            drawio_files.append(f.name)
-            if f.name not in attachment_map:
-                attachment_map[f.name] = f.name
-            print(f"  📊 Found additional Draw.io file: {f.name}", file=sys.stderr)
+            final_name = f.name
+            # Add .drawio extension if missing
+            if not f.name.lower().endswith('.drawio'):
+                new_name = f.name + '.drawio'
+                new_path = download_dir / new_name
+                f.rename(new_path)
+                final_name = new_name
+                print(f"  📝 Added .drawio extension: {f.name} → {new_name}", file=sys.stderr)
+            
+            drawio_files.append(final_name)
+            if final_name not in attachment_map:
+                attachment_map[final_name] = final_name
+            print(f"  📊 Found additional Draw.io file: {final_name}", file=sys.stderr)
     
     return attachment_map, drawio_files
 
