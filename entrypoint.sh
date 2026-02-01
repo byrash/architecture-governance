@@ -19,267 +19,112 @@ print_banner() {
     echo ""
 }
 
-# Step logging
-log_step() {
-    local step=$1
-    local total=$2
-    local title=$3
-    echo ""
-    echo -e "${CYAN}───────────────────────────────────────────────────${NC}"
-    echo -e "${CYAN}  [${step}/${total}] ${title}${NC}"
-    echo -e "${CYAN}───────────────────────────────────────────────────${NC}"
-}
-
-# Success message
-log_success() {
-    echo -e "${GREEN}  ✓ $1${NC}"
-}
-
-# Error message
-log_error() {
-    echo -e "${RED}  ✗ $1${NC}"
-}
-
-# Info message
 log_info() {
     echo -e "${BLUE}  → $1${NC}"
 }
 
-# Warning message
-log_warn() {
-    echo -e "${YELLOW}  ⚠ $1${NC}"
+log_error() {
+    echo -e "${RED}  ✗ $1${NC}"
 }
 
-# Setup .github structure from copilot/
-setup_github_structure() {
-    log_step 1 5 "Setting up .github structure"
-    
-    # Create .github directories
-    mkdir -p .github/agents
-    mkdir -p .github/skills
-    
-    # Copy agents
-    if [ -d "copilot/agents" ]; then
-        cp -r copilot/agents/* .github/agents/
-        agent_count=$(ls -1 .github/agents/*.agent.md 2>/dev/null | wc -l)
-        log_success "Copied ${agent_count} agents to .github/agents/"
-    else
-        log_error "copilot/agents/ not found"
-        exit 1
-    fi
-    
-    # Copy skills
-    if [ -d "copilot/skills" ]; then
-        cp -r copilot/skills/* .github/skills/
-        skill_count=$(ls -1d .github/skills/*/ 2>/dev/null | wc -l)
-        log_success "Copied ${skill_count} skills to .github/skills/"
-    else
-        log_error "copilot/skills/ not found"
-        exit 1
-    fi
-    
-    # List what was copied
-    if [ "$VERBOSE" = "true" ]; then
-        echo ""
-        log_info "Agents:"
-        for agent in .github/agents/*.agent.md; do
-            echo "      - $(basename $agent)"
-        done
-        echo ""
-        log_info "Skills:"
-        for skill in .github/skills/*/; do
-            echo "      - $(basename $skill)"
-        done
-    fi
+log_success() {
+    echo -e "${GREEN}  ✓ $1${NC}"
 }
 
-# Validate Copilot token
-validate_token() {
-    log_step 2 5 "Validating Copilot authentication"
+# Check required environment variables
+check_env() {
+    local errors=0
     
     if [ -z "$COPILOT_TOKEN" ]; then
-        log_error "COPILOT_TOKEN environment variable is not set"
-        log_info "Please set COPILOT_TOKEN in your .env file"
+        log_error "COPILOT_TOKEN not set"
+        log_info "Get token from: https://github.com/settings/tokens"
+        errors=1
+    fi
+    if [ -z "$CONFLUENCE_URL" ]; then
+        log_error "CONFLUENCE_URL not set"
+        errors=1
+    fi
+    if [ -z "$CONFLUENCE_API_TOKEN" ]; then
+        log_error "CONFLUENCE_API_TOKEN not set"
+        errors=1
+    fi
+    if [ -z "$PAGE_ID" ]; then
+        log_error "PAGE_ID not set"
+        errors=1
+    fi
+    
+    if [ $errors -eq 1 ]; then
         exit 1
     fi
     
-    # Export for Copilot CLI
-    export GITHUB_TOKEN="$COPILOT_TOKEN"
-    
-    log_success "Copilot token configured"
-    log_info "Model: ${MODEL:-claude-opus-4.5}"
+    log_success "Environment configured"
+    log_info "Page ID: $PAGE_ID"
+    log_info "Confluence: $CONFLUENCE_URL"
 }
 
-# Clean output directory
-clean_output() {
-    log_info "Cleaning output directory..."
-    rm -f governance/output/*.md governance/output/*.html 2>/dev/null || true
-    log_success "Output directory cleaned"
-}
-
-# Run ingestion agent only
-run_ingest() {
-    log_step 3 3 "Running Ingestion Agent"
-    
-    local input_file="${INPUT_FILE:-docs/sample-architecture.html}"
-    
-    log_info "Input: ${input_file}"
-    log_info "Output: governance/output/architecture.md"
+# Run agent via Copilot CLI
+run_agent() {
+    local agent=$1
+    local prompt=$2
     
     echo ""
-    echo -e "${YELLOW}Invoking @ingestion-agent...${NC}"
+    echo -e "${CYAN}───────────────────────────────────────────────────${NC}"
+    echo -e "${CYAN}  Triggering: @${agent}${NC}"
+    echo -e "${CYAN}  Prompt: ${prompt}${NC}"
+    echo -e "${CYAN}───────────────────────────────────────────────────${NC}"
     echo ""
     
-    copilot --agent=ingestion-agent \
-        --prompt "Ingest ${input_file} to governance/output/architecture.md" \
-        --model "${MODEL:-claude-opus-4.5}" \
-        --allow-all-paths \
-        --allow-all-tools
-    
-    if [ -f "governance/output/architecture.md" ]; then
-        log_success "Created governance/output/architecture.md"
+    # Use GitHub Copilot CLI to run the agent
+    if command -v github-copilot-cli &> /dev/null; then
+        GITHUB_TOKEN="$COPILOT_TOKEN" github-copilot-cli "@${agent} ${prompt}"
     else
-        log_error "Failed to create architecture.md"
-        exit 1
+        log_error "github-copilot-cli not found"
+        log_info "Fallback: Run manually in IDE: @${agent} ${prompt}"
+        return 1
     fi
-}
-
-# Run full governance validation
-run_validate() {
-    local input_file="${INPUT_FILE:-docs/sample-architecture.html}"
-    
-    log_step 3 5 "Running Governance Validation"
-    
-    log_info "Input: ${input_file}"
-    log_info "Model: ${MODEL:-claude-opus-4.5}"
-    
-    echo ""
-    echo -e "${YELLOW}Invoking @governance-agent...${NC}"
-    echo ""
-    echo -e "${BLUE}This will:${NC}"
-    echo "  1. Ingest document → architecture.md"
-    echo "  2. Validate patterns → patterns-report.md"
-    echo "  3. Validate standards → standards-report.md"
-    echo "  4. Validate security → security-report.md"
-    echo "  5. Merge reports → governance-report.md"
-    echo "  6. Generate dashboard → governance-report.html"
-    echo ""
-    
-    copilot --agent=governance-agent \
-        --prompt "Run governance validation on ${input_file}" \
-        --model "${MODEL:-claude-opus-4.5}" \
-        --allow-all-paths \
-        --allow-all-tools
-    
-    log_step 4 5 "Checking Output Files"
-    
-    local files=("architecture.md" "patterns-report.md" "standards-report.md" "security-report.md" "governance-report.md" "governance-report.html")
-    local missing=0
-    
-    for file in "${files[@]}"; do
-        if [ -f "governance/output/${file}" ]; then
-            log_success "Created ${file}"
-        else
-            log_warn "Missing ${file}"
-            ((missing++))
-        fi
-    done
-    
-    if [ $missing -gt 0 ]; then
-        log_warn "${missing} output file(s) were not created"
-    fi
-}
-
-# Print summary
-print_summary() {
-    log_step 5 5 "Summary"
-    
-    echo ""
-    echo -e "${PURPLE}═══════════════════════════════════════════════════════${NC}"
-    
-    if [ -f "governance/output/governance-report.md" ]; then
-        # Try to extract score from report
-        local score=$(grep -oP 'Overall Score.*?(\d+)/100' governance/output/governance-report.md 2>/dev/null | grep -oP '\d+' | head -1)
-        local status="UNKNOWN"
-        
-        if [ -n "$score" ]; then
-            if [ "$score" -ge 70 ]; then
-                status="PASS"
-                echo -e "${GREEN}  ✅ RESULT: ${status}${NC}"
-            elif [ "$score" -ge 50 ]; then
-                status="WARN"
-                echo -e "${YELLOW}  ⚠️  RESULT: ${status}${NC}"
-            else
-                status="FAIL"
-                echo -e "${RED}  ❌ RESULT: ${status}${NC}"
-            fi
-            echo -e "${BLUE}  📊 Score: ${score}/100${NC}"
-        else
-            echo -e "${BLUE}  📊 Reports generated (check for score)${NC}"
-        fi
-    else
-        echo -e "${YELLOW}  ⚠️  Governance report not generated${NC}"
-    fi
-    
-    echo ""
-    echo -e "${BLUE}  📁 Output files in: governance/output/${NC}"
-    echo ""
-    
-    if [ -d "governance/output" ]; then
-        for file in governance/output/*; do
-            if [ -f "$file" ]; then
-                local size=$(du -h "$file" | cut -f1)
-                echo "      - $(basename $file) (${size})"
-            fi
-        done
-    fi
-    
-    echo ""
-    echo -e "${PURPLE}═══════════════════════════════════════════════════════${NC}"
-    echo ""
 }
 
 # Main
 main() {
-    local command="${1:-validate}"
+    local cmd="${1:-ingest}"
+    local index="${2:-}"
     
     print_banner
+    check_env
     
-    echo -e "${BLUE}  Mode: ${command}${NC}"
-    echo -e "${BLUE}  Input: ${INPUT_FILE:-docs/sample-architecture.html}${NC}"
-    echo -e "${BLUE}  Verbose: ${VERBOSE:-true}${NC}"
-    
-    case "$command" in
-        validate)
-            setup_github_structure
-            validate_token
-            clean_output
-            run_validate
-            print_summary
-            ;;
+    case "$cmd" in
         ingest)
-            setup_github_structure
-            validate_token
-            clean_output
-            run_ingest
-            echo ""
-            log_success "Ingestion complete!"
-            echo ""
+            if [ -n "$index" ]; then
+                run_agent "ingestion-agent" "Ingest Confluence page $PAGE_ID to $index"
+            else
+                run_agent "ingestion-agent" "Ingest Confluence page $PAGE_ID"
+            fi
             ;;
-        setup)
-            setup_github_structure
-            log_success "Setup complete!"
+        validate)
+            run_agent "governance-agent" "Validate Confluence page $PAGE_ID"
             ;;
         *)
-            echo "Usage: $0 {validate|ingest|setup}"
+            echo "Usage: $0 {ingest|validate} [index]"
             echo ""
             echo "Commands:"
-            echo "  validate  - Run full governance validation (default)"
-            echo "  ingest    - Only run document ingestion"
-            echo "  setup     - Only setup .github structure"
+            echo "  ingest              Ingest page via @ingestion-agent"
+            echo "  ingest <index>      Ingest page to index (patterns/standards/security)"
+            echo "  validate            Full validation via @governance-agent"
+            echo ""
+            echo "Examples:"
+            echo "  $0 ingest"
+            echo "  $0 ingest patterns"
+            echo "  $0 validate"
             exit 1
             ;;
     esac
+    
+    echo ""
+    echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  ✅ Complete${NC}"
+    echo -e "${GREEN}  Output: governance/output/$PAGE_ID/${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
+    echo ""
 }
 
 main "$@"

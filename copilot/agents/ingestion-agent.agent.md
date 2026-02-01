@@ -1,100 +1,219 @@
 ---
 name: ingestion-agent
-description: Document ingestion agent. Converts PDF, HTML, or Confluence to normalized Markdown with Mermaid diagrams. Use when asked to ingest, parse, or convert architecture documents.
+description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
 tools: ["read", "write", "bash"]
-skills: ["doc-to-markdown", "drawio-to-mermaid", "image-to-mermaid"]
+skills: ["confluence-ingest", "drawio-to-mermaid", "image-to-mermaid"]
 ---
 
-# Document Ingestion Agent
+# Ingestion Agent
 
-You convert input documents to normalized Markdown format by running Python scripts via bash.
+Ingest Confluence pages and produce a single clean Markdown file with all diagrams converted to Mermaid.
 
-**IMPORTANT**: You MUST use the bash tool to run Python scripts. Do NOT just read/write files manually.
+## Input Parameters
 
-## Logging (REQUIRED)
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `page-id` | Yes | Confluence page ID to ingest |
+| `index` | No | Index name to copy final page.md (`patterns`, `standards`, or `security`) |
 
-**You MUST announce each action in this EXACT format before running any command:**
+## Modes
 
-Example for document conversion:
+| Mode | When | Output |
+|------|------|--------|
+| **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only |
+| **Ingest** | index provided | Also copies to `governance/indexes/<index>/<filename>.md` |
+
+## Example Invocations
+
+**Governance mode** (for validation):
 ```
-───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Converting document to markdown
-   Tool: bash
-   Script: doc_to_markdown.py
-   Command: python governance/scripts/doc_to_markdown.py --input docs/sample.html --output governance/output/architecture.md
-   Input: docs/sample.html
-   Output: governance/output/architecture.md
-───────────────────────────────────────────────────
-```
-
-Example for Draw.io conversion:
-```
-───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Converting Draw.io diagram to Mermaid
-   Tool: bash
-   Script: drawio_to_mermaid.py
-   Command: python governance/scripts/drawio_to_mermaid.py --input docs/diagram.drawio --output governance/output/diagram.md
-   Input: docs/diagram.drawio
-   Output: governance/output/diagram.md
-───────────────────────────────────────────────────
+@ingestion-agent Ingest Confluence page 123456789
 ```
 
-## Available Scripts
+**Ingest mode** (add to patterns index):
+```
+@ingestion-agent Ingest Confluence page 123456789 to patterns
+```
 
-| Script | Input | Purpose |
-|--------|-------|---------|
-| `doc_to_markdown.py` | PDF, HTML | Parse and convert to Markdown |
-| `drawio_to_mermaid.py` | .drawio | Parse XML and generate Mermaid |
-| `image_to_mermaid.py` | PNG, JPG | OCR and generate Mermaid placeholder |
+**Ingest mode** (add to standards index):
+```
+@ingestion-agent Ingest Confluence page 123456789 to standards
+```
+
+**Ingest mode** (add to security index):
+```
+@ingestion-agent Ingest Confluence page 123456789 to security
+```
 
 ## Process
 
-When asked to ingest a document, follow these steps:
+### Step 1: Download Confluence Page
 
-### Step 1: Convert Document to Markdown
-```bash
-python governance/scripts/doc_to_markdown.py \
-    --input <source_document> \
-    --output governance/output/architecture.md
-```
-Watch the stderr output - it reports diagrams found in the source directory.
+Read and follow the `confluence-ingest` skill at `copilot/skills/confluence-ingest/SKILL.md`
 
-### Step 2: Check for Diagrams
-Look for `.drawio` files in the same directory as the source document:
 ```bash
-ls $(dirname <source_document>)/*.drawio 2>/dev/null
+python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 ```
 
-### Step 3: Convert Any Diagrams Found
-For each `.drawio` file found:
-```bash
-python governance/scripts/drawio_to_mermaid.py \
-    --input <diagram.drawio> \
-    --output governance/output/diagram.md
+### Step 2: Convert Draw.io Diagrams to Mermaid
 
-cat governance/output/diagram.md >> governance/output/architecture.md
+Read and follow the `drawio-to-mermaid` skill at `copilot/skills/drawio-to-mermaid/SKILL.md`
+
+For each `.drawio` file in `governance/output/<PAGE_ID>/attachments/`:
+```bash
+python copilot/skills/drawio-to-mermaid/drawio_to_mermaid.py \
+    --input governance/output/<PAGE_ID>/attachments/<file>.drawio \
+    --output governance/output/<PAGE_ID>/<file>.mermaid.md
 ```
 
-For image diagrams (if no .drawio):
-```bash
-python governance/scripts/image_to_mermaid.py \
-    --input <diagram.png> \
-    --output governance/output/diagram.md
+### Step 3: Convert Images to Mermaid
 
-cat governance/output/diagram.md >> governance/output/architecture.md
+Read and follow the `image-to-mermaid` skill at `copilot/skills/image-to-mermaid/SKILL.md`
+
+For each image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
+- Read the image using the read tool
+- Analyze and generate Mermaid using model vision
+- Save the mermaid output for embedding
+
+### Step 4: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
+
+**CRITICAL**: Replace each diagram/image reference with mermaid **at the exact same location** in the document. The page structure must remain identical to Confluence - only the diagram/image format changes.
+
+Read `governance/output/<PAGE_ID>/page.md` and replace ALL attachment references **in-place**:
+
+| Find | Replace With |
+|------|--------------|
+| `![...](attachments/*.drawio)` | Inline mermaid from Step 2 |
+| `![...](attachments/*.png)` | Inline mermaid from Step 3 |
+| `![...](attachments/*.jpg)` | Inline mermaid from Step 3 |
+| `![...](attachments/*.svg)` | Inline mermaid from Step 3 |
+| `<img src="attachments/...">` | Inline mermaid |
+
+**Example transformation:**
+
+Before:
+```markdown
+## Architecture Overview
+
+Our system uses microservices:
+
+![System Architecture](attachments/architecture.drawio)
+
+The diagram above shows...
+```
+
+After:
+```markdown
+## Architecture Overview
+
+Our system uses microservices:
+
+```mermaid
+flowchart TB
+    A[API Gateway] --> B[Auth Service]
+    A --> C[User Service]
+```
+
+The diagram above shows...
+```
+
+The surrounding text, headings, and document structure remain **exactly the same**.
+
+### Step 5: Clean Broken References
+
+Scan final `page.md` and verify there are **NO remaining external references**:
+
+| Check | Action |
+|-------|--------|
+| `![...](...attachments...)` | Should be replaced with mermaid - if not, remove |
+| `<img src=...>` | Should be replaced with mermaid - if not, remove |
+| Broken links to local files | Remove |
+| Links to other Confluence pages | Keep (informational) |
+
+**VALIDATION**: Before saving, confirm:
+- [ ] Zero `![` image markdown references to local files
+- [ ] Zero `<img` HTML tags pointing to attachments
+- [ ] All diagrams converted to inline Mermaid blocks
+- [ ] Document structure matches original Confluence page
+
+### Step 6: Save Final page.md
+
+Write the cleaned content back to `governance/output/<PAGE_ID>/page.md`
+
+### Step 7: Copy to Index (Ingest Mode Only)
+
+If index name was provided (`patterns`, `standards`, or `security`):
+1. Read metadata.json to get the page title
+2. Create a filename from the title (lowercase, hyphens, e.g., `my-architecture-doc.md`)
+3. Copy the final page.md to `governance/indexes/<index>/`:
+```bash
+cp governance/output/<PAGE_ID>/page.md governance/indexes/<index>/<filename>.md
+```
+
+## Logging
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Starting ingestion
+   Page ID: <PAGE_ID>
+   Mode: governance | ingest
+   Index: <patterns|standards|security> (if ingest mode)
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Downloading Confluence page
+   Skill: confluence-ingest
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Converting Draw.io to Mermaid
+   Skill: drawio-to-mermaid
+   File: <filename>.drawio
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Converting image to Mermaid
+   Skill: image-to-mermaid
+   File: <filename>.png
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Copying to index
+   From: governance/output/<PAGE_ID>/page.md
+   To: governance/indexes/<index>/<filename>.md
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+✅ INGESTION-AGENT: Complete
+   Output: governance/output/<PAGE_ID>/page.md
+   Indexed: governance/indexes/<index>/<filename>.md (if ingest mode)
+   Drawio converted: <count>
+   Images converted: <count>
+   Broken refs removed: <count>
+───────────────────────────────────────────────────
 ```
 
 ## Output
 
-`governance/output/architecture.md` - Normalized markdown with embedded Mermaid diagrams
+**Self-sufficient `page.md`** that renders exactly like the original Confluence page:
 
-## Completion
+| Requirement | Status |
+|-------------|--------|
+| Same structure as Confluence | ✅ Headings, sections, text in same order |
+| Same content as Confluence | ✅ All text preserved |
+| Draw.io diagrams | ✅ Converted to inline Mermaid (in-place) |
+| Images (PNG/JPG/SVG) | ✅ Converted to inline Mermaid (in-place) |
+| External dependencies | ✅ NONE - no image refs, no broken links |
+| Renders correctly | ✅ Any markdown viewer shows full content |
 
-After all steps complete, announce:
-```
-───────────────────────────────────────────────────
-✅ INGESTION-AGENT: Complete
-   Output: governance/output/architecture.md
-   Diagrams converted: <count>
-───────────────────────────────────────────────────
-```
+The final `page.md` is **completely self-contained** - it can be copied anywhere and will render the full page content with all diagrams visible as Mermaid.

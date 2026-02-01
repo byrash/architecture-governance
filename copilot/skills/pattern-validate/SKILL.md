@@ -1,37 +1,33 @@
 ---
 name: pattern-validate
-description: Validate architecture document against pattern rules. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
+description: Validate architecture document against pattern rules from the index. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
 ---
 
 # Pattern Validation
 
-Validate architecture document against design pattern rules.
+Validate architecture document against all design pattern documents in the index.
 
 ## Inputs
 
-1. **Document**: `governance/output/architecture.md`
-2. **Rules**: `governance/indexes/patterns/rules.md`
+1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
+2. **Index**: `governance/indexes/patterns/` (ALL .md files)
 
 ## Instructions
 
-1. Read the architecture document
-2. Read the pattern rules
-3. For each rule, analyze if the document addresses it:
+1. Read ALL .md files from `governance/indexes/patterns/`
+2. Read the architecture document
+3. For each pattern found in the index files, analyze if the document addresses it:
    - **Required patterns**: Must be present → PASS/FAIL
    - **Recommended patterns**: Nice to have → PASS/WARN
    - **Anti-patterns**: Must NOT be present → PASS/FAIL
 4. Calculate score and write report
 
-## Validation Criteria
+## Validation Approach
 
-| Rule ID | Pattern | Required | Look For |
-|---------|---------|----------|----------|
-| PAT-001 | Repository Pattern | Yes | Data access abstraction, repository interfaces |
-| PAT-002 | Dependency Injection | Yes | DI, IoC, injected dependencies, containers |
-| PAT-003 | API Gateway | Yes | Central entry point, gateway, API management |
-| PAT-004 | Factory Pattern | No | Object creation, factories, builders |
-| PAT-005 | Circuit Breaker | No | Fault tolerance, resilience, fallbacks |
-| PAT-006 | Event-Driven | No | Events, messages, queues, pub/sub |
+For each pattern found in index files:
+- Search the document for evidence of the pattern
+- Look for keywords, descriptions, diagrams mentioning the pattern
+- Determine if pattern is implemented or just mentioned
 
 ## Scoring
 
@@ -43,13 +39,15 @@ Validate architecture document against design pattern rules.
 
 ## Output
 
-Write to `governance/output/patterns-report.md`:
+Write to `governance/output/<PAGE_ID>/patterns-report.md`:
 
 ```markdown
 # Pattern Validation Report
 
 **Generated**: [timestamp]
-**Document**: governance/output/architecture.md
+**Page ID**: <PAGE_ID>
+**Document**: governance/output/<PAGE_ID>/page.md
+**Index Files**: [count] files from governance/indexes/patterns/
 **Score**: X/100
 **Status**: ✅ PASS / ⚠️ WARN / ❌ FAIL
 
@@ -61,9 +59,16 @@ Write to `governance/output/patterns-report.md`:
 | ❌ Failed | N |
 | ⚠️ Warnings | N |
 
+## Patterns Checked
+
+| Pattern | Source File | Status | Evidence |
+|---------|-------------|--------|----------|
+| [pattern] | [index file] | ✅/❌/⚠️ | [brief evidence] |
+
 ## Required Patterns
 
-### PAT-001: Repository Pattern
+### [Pattern Name]
+- **Source**: [index file that defines this pattern]
 - **Status**: ✅ PASS / ❌ FAIL
 - **Evidence**: [quote or describe what you found]
 - **Recommendation**: [if failed, what to add]

@@ -36,7 +36,6 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.pytho
 # Copy application files
 COPY copilot/ ./copilot/
 COPY governance/ ./governance/
-COPY docs/ ./docs/
 COPY entrypoint.sh ./
 
 # Make entrypoint executable
@@ -45,7 +44,7 @@ RUN chmod +x entrypoint.sh
 # Create output directory
 RUN mkdir -p governance/output
 
-# Environment variables (MODEL, VERBOSE, INPUT_FILE, COPILOT_TOKEN passed at runtime via docker-compose)
+# Environment variables (CONFLUENCE_URL, CONFLUENCE_API_TOKEN, PAGE_ID passed at runtime)
 ENV PYTHONUNBUFFERED=1
 
 # SSL/TLS - Allow self-signed certificates
@@ -59,5 +58,5 @@ ENV SSL_CERT_FILE=""
 # Entrypoint constructs .github and runs governance
 ENTRYPOINT ["./entrypoint.sh"]
 
-# Default command - run full validation
-CMD ["validate"]
+# Default command - ingest Confluence page
+CMD ["ingest"]

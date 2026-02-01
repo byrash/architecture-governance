@@ -1,35 +1,55 @@
 # Architecture Governance Makefile
 
-.PHONY: validate ingest release
+.PHONY: help ingest validate clean release
 
-.DEFAULT_GOAL := validate
+.DEFAULT_GOAL := help
 
 DOCKER_IMAGE := architecture-governance
 VERSION := $(shell date +%Y%m%d-%H%M%S)
 
-validate:
-	@if [ ! -f .env ]; then echo "Error: .env not found. Run: cp .env.example .env"; exit 1; fi
-	@docker build -t $(DOCKER_IMAGE) .
-	@rm -f governance/output/*.md governance/output/*.html 2>/dev/null || true
-ifdef FILE
-	@INPUT_FILE=$(FILE) docker-compose run --rm governance
-else
-	@docker-compose run --rm governance
-endif
-	@docker-compose down --volumes --remove-orphans 2>/dev/null || true
-	@open governance/output/governance-report.html 2>/dev/null || xdg-open governance/output/governance-report.html 2>/dev/null || true
+help:
+	@echo "Architecture Governance"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make ingest PAGE_ID=123456789              Ingest via @ingestion-agent"
+	@echo "  make ingest PAGE_ID=123456789 INDEX=patterns   Ingest to index"
+	@echo "  make validate PAGE_ID=123456789            Validate via @governance-agent"
+	@echo "  make clean                                 Clear output folder"
+	@echo "  make release                               Build and release Docker image"
+	@echo ""
+	@echo "All commands trigger agents via Copilot CLI in Docker."
 
 ingest:
 	@if [ ! -f .env ]; then echo "Error: .env not found. Run: cp .env.example .env"; exit 1; fi
+ifndef PAGE_ID
+	@echo "Error: PAGE_ID required. Usage: make ingest PAGE_ID=123456789"
+	@exit 1
+endif
+	@echo "Building Docker image..."
 	@docker build -t $(DOCKER_IMAGE) .
-	@rm -f governance/output/*.md governance/output/*.html 2>/dev/null || true
-ifdef FILE
-	@INPUT_FILE=$(FILE) docker-compose run --rm governance ingest
+	@echo "Triggering @ingestion-agent..."
+ifdef INDEX
+	@PAGE_ID=$(PAGE_ID) docker-compose run --rm governance ingest $(INDEX)
 else
-	@docker-compose run --rm governance ingest
+	@PAGE_ID=$(PAGE_ID) docker-compose run --rm governance ingest
 endif
 	@docker-compose down --volumes --remove-orphans 2>/dev/null || true
-	@echo "Output: governance/output/architecture.md"
+
+validate:
+	@if [ ! -f .env ]; then echo "Error: .env not found. Run: cp .env.example .env"; exit 1; fi
+ifndef PAGE_ID
+	@echo "Error: PAGE_ID required. Usage: make validate PAGE_ID=123456789"
+	@exit 1
+endif
+	@echo "Building Docker image..."
+	@docker build -t $(DOCKER_IMAGE) .
+	@echo "Triggering @governance-agent..."
+	@PAGE_ID=$(PAGE_ID) docker-compose run --rm governance validate
+	@docker-compose down --volumes --remove-orphans 2>/dev/null || true
+
+clean:
+	@rm -rf governance/output/*/
+	@echo "Cleaned governance/output/"
 
 release:
 	@echo "Building and releasing version: $(VERSION)"
@@ -50,7 +70,6 @@ release:
 	@gh release create v$(VERSION) \
 		$(DOCKER_IMAGE)-$(VERSION).tar.gz \
 		--title "Architecture Governance v$(VERSION)" \
-		--notes "Docker image for architecture governance validation. Import with: gunzip -c $(DOCKER_IMAGE)-$(VERSION).tar.gz | docker load"
+		--notes "Docker image for architecture governance validation."
 	@echo ""
 	@echo "Released: v$(VERSION)"
-	@echo "To import: gunzip -c $(DOCKER_IMAGE)-$(VERSION).tar.gz | docker load"

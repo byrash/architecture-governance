@@ -10,10 +10,11 @@ services:
       - .env
     environment:
       - COPILOT_TOKEN=${COPILOT_TOKEN}
-      - MODEL=${MODEL:-claude-opus-4.5}
-      - VERBOSE=${VERBOSE:-true}
-      - INPUT_FILE=${INPUT_FILE:-docs/sample-architecture.html}
+      - CONFLUENCE_URL=${CONFLUENCE_URL}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
+      - PAGE_ID=${PAGE_ID}
     volumes:
       - ./governance/output:/app/governance/output
-      - ./docs:/app/docs:ro
-    command: ["validate"]
+      - ./governance/indexes:/app/governance/indexes
+      - ./copilot:/app/copilot:ro
+    command: ["ingest"]

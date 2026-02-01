@@ -1,36 +1,30 @@
 ---
 name: standards-validate
-description: Validate architecture document against standards rules. Use when asked to check standards, validate naming conventions, or verify documentation compliance.
+description: Validate architecture document against standards from the index. Use when asked to check standards, validate naming conventions, or verify documentation compliance.
 ---
 
 # Standards Validation
 
-Validate architecture document against architectural standards.
+Validate architecture document against all standards documents in the index.
 
 ## Inputs
 
-1. **Document**: `governance/output/architecture.md`
-2. **Rules**: `governance/indexes/standards/rules.md`
+1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
+2. **Index**: `governance/indexes/standards/` (ALL .md files)
 
 ## Instructions
 
-1. Read the architecture document
-2. Read the standards rules
-3. For each standard, check if the document addresses it
+1. Read ALL .md files from `governance/indexes/standards/`
+2. Read the architecture document
+3. For each standard found in the index files, check if the document addresses it
 4. Calculate score and write report
 
-## Validation Criteria
+## Validation Approach
 
-| Rule ID | Standard | Required | Look For |
-|---------|----------|----------|----------|
-| STD-001 | API Versioning | Yes | /api/v1/, version headers, versioning strategy |
-| STD-002 | Architecture Overview | Yes | Overview section, context diagram, description |
-| STD-003 | Error Handling | Yes | Error responses, error codes, retry strategies |
-| STD-004 | Component Naming | Yes | *Service, *Controller, *Repository naming |
-| STD-005 | Health Check | Yes | /health, /healthz, liveness, readiness |
-| STD-006 | Configuration | Yes | Externalized config, environment variables |
-| STD-007 | Logging | Yes | Logging strategy, log levels, observability |
-| STD-008 | Database Schema | No | ERD, data model, schema documentation |
+For each standard found in index files:
+- Search the document for evidence of compliance
+- Look for keywords, sections, diagrams addressing the standard
+- Determine compliance level
 
 ## Scoring
 
@@ -41,13 +35,15 @@ Validate architecture document against architectural standards.
 
 ## Output
 
-Write to `governance/output/standards-report.md`:
+Write to `governance/output/<PAGE_ID>/standards-report.md`:
 
 ```markdown
 # Standards Validation Report
 
 **Generated**: [timestamp]
-**Document**: governance/output/architecture.md
+**Page ID**: <PAGE_ID>
+**Document**: governance/output/<PAGE_ID>/page.md
+**Index Files**: [count] files from governance/indexes/standards/
 **Score**: X/100
 **Status**: ✅ PASS / ⚠️ WARN / ❌ FAIL
 
@@ -59,9 +55,16 @@ Write to `governance/output/standards-report.md`:
 | ❌ Failed | N |
 | ⚠️ Warnings | N |
 
+## Standards Checked
+
+| Standard | Source File | Status | Evidence |
+|----------|-------------|--------|----------|
+| [standard] | [index file] | ✅/❌/⚠️ | [brief evidence] |
+
 ## Documentation Standards
 
-### STD-001: API Versioning
+### [Standard Name]
+- **Source**: [index file that defines this standard]
 - **Status**: ✅ PASS / ❌ FAIL
 - **Evidence**: [quote or describe what you found]
 - **Recommendation**: [if failed, what to add]

@@ -1,38 +1,31 @@
 ---
 name: security-validate
-description: Validate architecture document against security rules. Use when asked to check security, validate threat models, or verify security compliance.
+description: Validate architecture document against security rules from the index. Use when asked to check security, validate threat models, or verify security compliance.
 ---
 
 # Security Validation
 
-Validate architecture document against security guidelines.
+Validate architecture document against all security documents in the index.
 
 ## Inputs
 
-1. **Document**: `governance/output/architecture.md`
-2. **Rules**: `governance/indexes/security/rules.md`
+1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
+2. **Index**: `governance/indexes/security/` (ALL .md files)
 
 ## Instructions
 
-1. Read the architecture document
-2. Read the security rules
-3. For each security control, check if addressed
+1. Read ALL .md files from `governance/indexes/security/`
+2. Read the architecture document
+3. For each security control found in the index files, check if addressed
 4. Look for vulnerabilities (hardcoded secrets, etc.)
 5. Calculate score and write report
 
-## Validation Criteria
+## Validation Approach
 
-| Rule ID | Security Control | Severity | Look For |
-|---------|-----------------|----------|----------|
-| SEC-001 | Authentication | Critical | OAuth, JWT, SSO, login mechanisms |
-| SEC-002 | Authorization | Critical | RBAC, permissions, access control |
-| SEC-003 | Data Encryption | Critical | TLS, HTTPS, AES, encryption at rest |
-| SEC-004 | Secrets Management | Critical | Vault, secrets manager, no hardcoded secrets |
-| SEC-005 | Input Validation | High | Sanitization, validation, parameterized queries |
-| SEC-006 | SQL Injection Prevention | Critical | ORM, prepared statements, parameterized |
-| SEC-007 | Audit Logging | High | Security logs, audit trail, SIEM |
-| SEC-008 | Rate Limiting | Medium | Throttling, rate limits, DDoS protection |
-| SEC-009 | CORS | Medium | CORS configuration, allowed origins |
+For each security control found in index files:
+- Search the document for evidence of the control
+- Look for security mechanisms, protocols, configurations
+- Identify any vulnerabilities or security gaps
 
 ## Vulnerabilities to Detect
 
@@ -40,6 +33,7 @@ Validate architecture document against security guidelines.
 - Missing encryption
 - No authentication mentioned
 - Direct database access without validation
+- Sensitive data exposure
 
 ## Scoring
 
@@ -52,14 +46,17 @@ Validate architecture document against security guidelines.
 
 ## Output
 
-Write to `governance/output/security-report.md`:
+Write to `governance/output/<PAGE_ID>/security-report.md`:
 
 ```markdown
 # Security Validation Report
 
 **Generated**: [timestamp]
-**Document**: governance/output/architecture.md
+**Page ID**: <PAGE_ID>
+**Document**: governance/output/<PAGE_ID>/page.md
+**Index Files**: [count] files from governance/indexes/security/
 **Score**: X/100
+**Risk Level**: LOW / MEDIUM / HIGH / CRITICAL
 **Status**: ✅ PASS / ⚠️ WARN / ❌ FAIL
 
 ## Summary
@@ -70,11 +67,18 @@ Write to `governance/output/security-report.md`:
 | ❌ Failed | N |
 | 🚨 Critical | N |
 
-## Authentication & Authorization
+## Security Controls Checked
 
-### SEC-001: Authentication
+| Control | Source File | Severity | Status | Evidence |
+|---------|-------------|----------|--------|----------|
+| [control] | [index file] | Critical/High/Medium | ✅/❌ | [brief evidence] |
+
+## Security Controls
+
+### [Control Name]
+- **Source**: [index file that defines this control]
+- **Severity**: Critical / High / Medium
 - **Status**: ✅ PASS / ❌ FAIL
-- **Severity**: Critical
 - **Evidence**: [quote or describe what you found]
 - **Risk**: [what could go wrong if missing]
 - **Recommendation**: [if failed, what to add]
@@ -83,7 +87,7 @@ Write to `governance/output/security-report.md`:
 
 ## Vulnerabilities Detected
 
-[List any security issues found]
+[List any security issues found with severity]
 
 ## Risk Assessment
 

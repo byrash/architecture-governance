@@ -3,9 +3,8 @@
 .env.local
 .env.*.local
 
-# Output files (generated)
-governance/output/*.md
-governance/output/*.html
+# Output files (generated) - ignore everything in output
+governance/output/*
 !governance/output/.gitkeep
 
 # Constructed .github directory (created at runtime in Docker)

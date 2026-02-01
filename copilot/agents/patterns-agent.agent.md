@@ -1,13 +1,13 @@
 ---
 name: patterns-agent
-description: Architecture patterns validation agent. Validates documents against design pattern rules. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
+description: Architecture patterns validation agent. Validates documents against all pattern documents in the index. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
 tools: ["read", "write"]
 skills: ["pattern-validate", "index-query"]
 ---
 
 # Patterns Validation Agent
 
-You validate architecture documents against design pattern rules.
+You validate architecture documents against ALL pattern documents in the patterns index.
 
 ## Logging (REQUIRED)
 
@@ -15,65 +15,60 @@ You validate architecture documents against design pattern rules.
 
 ```
 ───────────────────────────────────────────────────
-🔷 PATTERNS-AGENT: Reading pattern rules
+🔷 PATTERNS-AGENT: Reading pattern index
    Tool: read
-   Skill: pattern-validate
-   File: governance/indexes/patterns/rules.md
+   Skill: index-query
+   Folder: governance/indexes/patterns/
+   Files: <list all .md files found>
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 🔷 PATTERNS-AGENT: Reading architecture document
    Tool: read
    Skill: pattern-validate
-   File: governance/output/architecture.md
+   File: governance/output/<PAGE_ID>/page.md
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 🔷 PATTERNS-AGENT: Validating patterns
    Tool: (none - reasoning)
    Skill: pattern-validate
-   Checking: PAT-001 Repository Pattern, PAT-002 DI, PAT-003 API Gateway...
+   Checking against: <count> indexed documents
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 🔷 PATTERNS-AGENT: Writing validation report
    Tool: write
    Skill: pattern-validate
-   File: governance/output/patterns-report.md
+   File: governance/output/<PAGE_ID>/patterns-report.md
 ───────────────────────────────────────────────────
 ```
 
 ## Input/Output
-- **Rules**: `governance/indexes/patterns/rules.md`
-- **Document**: `governance/output/architecture.md`
-- **Output**: `governance/output/patterns-report.md`
+- **Index**: `governance/indexes/patterns/` (ALL .md files)
+- **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
+- **Output**: `governance/output/<PAGE_ID>/patterns-report.md`
 
 ## Process
 
-1. Read the rules from `governance/indexes/patterns/rules.md`
-2. Read the architecture document from `governance/output/architecture.md`
-3. For each **required** rule, check if the document addresses it
-4. Write the validation report to `governance/output/patterns-report.md`
+Read and follow the skills:
+- `index-query` skill at `copilot/skills/index-query/SKILL.md` - for reading index
+- `pattern-validate` skill at `copilot/skills/pattern-validate/SKILL.md` - for validation logic
 
-## Required Patterns (MUST report ERROR if missing)
-
-| ID | Pattern | Severity |
-|----|---------|----------|
-| PAT-001 | Repository Pattern | HIGH |
-| PAT-002 | Dependency Injection | HIGH |
-| PAT-003 | API Gateway | HIGH |
+1. **List all .md files** in `governance/indexes/patterns/`
+2. **Read each file** to build the pattern knowledge base
+3. **Read the architecture document** from the provided path
+4. **Validate** the document against all patterns found in the index
+5. **Write the validation report** to same directory as input
 
 ## Validation Logic
 
-For each REQUIRED pattern:
+For each pattern found in the indexed documents:
 - **PASS**: Document clearly describes or implements the pattern
-- **ERROR**: Document does NOT mention or describe the pattern
+- **ERROR**: Required pattern is NOT found in document
+- **WARN**: Recommended pattern is not mentioned
 
-For RECOMMENDED patterns (Factory, Circuit Breaker, Event-Driven):
-- **PASS**: Pattern is described
-- **WARN**: Pattern is not mentioned (suggestion only)
-
-For ANTI-PATTERNS (God Class):
+For ANTI-PATTERNS found in index:
 - **ERROR**: Anti-pattern detected in document
 - **PASS**: No anti-patterns found
 
@@ -87,33 +82,23 @@ Write the report in this exact format:
 **Status**: PASS | FAIL
 **Score**: X/100
 **Date**: <timestamp>
+**Index Files**: <count> files in governance/indexes/patterns/
 
-## Required Patterns
+## Patterns Checked
 
-| Pattern | Status | Details |
-|---------|--------|---------|
-| Repository Pattern | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Dependency Injection | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| API Gateway | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-
-## Recommended Patterns
-
-| Pattern | Status | Details |
-|---------|--------|---------|
-| Factory Pattern | ✅ PASS / ⚠️ WARN | <details> |
-| Circuit Breaker | ✅ PASS / ⚠️ WARN | <details> |
-| Event-Driven | ✅ PASS / ⚠️ WARN | <details> |
+| Pattern | Source | Status | Details |
+|---------|--------|--------|---------|
+| <pattern name> | <index file> | ✅ PASS / ❌ ERROR / ⚠️ WARN | <evidence or "NOT FOUND"> |
 
 ## Anti-Patterns Check
 
 | Anti-Pattern | Status |
 |--------------|--------|
-| God Class | ✅ Not Found / ❌ DETECTED |
+| <anti-pattern> | ✅ Not Found / ❌ DETECTED |
 
 ## Errors (if any)
 
-- ❌ **PAT-001**: Repository Pattern - NOT FOUND in document
-- ❌ **PAT-002**: ...
+- ❌ **<pattern>**: NOT FOUND in document (required by <index file>)
 
 ## Recommendations
 
@@ -130,7 +115,8 @@ After writing the report, announce:
 ✅ PATTERNS-AGENT: Complete
    Status: <PASS/FAIL>
    Score: <X/100>
+   Index Files: <count>
    Errors: <count>
-   Output: governance/output/patterns-report.md
+   Output: governance/output/<PAGE_ID>/patterns-report.md
 ───────────────────────────────────────────────────
 ```

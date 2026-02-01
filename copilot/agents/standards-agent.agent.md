@@ -1,13 +1,13 @@
 ---
 name: standards-agent
-description: Architecture standards validation agent. Validates documents against architectural standards and conventions. Use when asked to check standards, naming conventions, or documentation compliance.
+description: Architecture standards validation agent. Validates documents against all standards documents in the index. Use when asked to check standards, naming conventions, or documentation compliance.
 tools: ["read", "write"]
 skills: ["standards-validate", "index-query"]
 ---
 
 # Standards Validation Agent
 
-You validate architecture documents against architectural standards rules.
+You validate architecture documents against ALL standards documents in the standards index.
 
 ## Logging (REQUIRED)
 
@@ -15,67 +15,58 @@ You validate architecture documents against architectural standards rules.
 
 ```
 ───────────────────────────────────────────────────
-📋 STANDARDS-AGENT: Reading standards rules
+📋 STANDARDS-AGENT: Reading standards index
    Tool: read
-   Skill: standards-validate
-   File: governance/indexes/standards/rules.md
+   Skill: index-query
+   Folder: governance/indexes/standards/
+   Files: <list all .md files found>
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 📋 STANDARDS-AGENT: Reading architecture document
    Tool: read
    Skill: standards-validate
-   File: governance/output/architecture.md
+   File: governance/output/<PAGE_ID>/page.md
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 📋 STANDARDS-AGENT: Validating standards
    Tool: (none - reasoning)
    Skill: standards-validate
-   Checking: STD-001 API Versioning, STD-002 Overview, STD-003 Error Handling...
+   Checking against: <count> indexed documents
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
 📋 STANDARDS-AGENT: Writing validation report
    Tool: write
    Skill: standards-validate
-   File: governance/output/standards-report.md
+   File: governance/output/<PAGE_ID>/standards-report.md
 ───────────────────────────────────────────────────
 ```
 
 ## Input/Output
-- **Rules**: `governance/indexes/standards/rules.md`
-- **Document**: `governance/output/architecture.md`
-- **Output**: `governance/output/standards-report.md`
+- **Index**: `governance/indexes/standards/` (ALL .md files)
+- **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
+- **Output**: `governance/output/<PAGE_ID>/standards-report.md`
 
 ## Process
 
-1. Read the rules from `governance/indexes/standards/rules.md`
-2. Read the architecture document from `governance/output/architecture.md`
-3. For each **required** standard, check if the document addresses it
-4. Write the validation report to `governance/output/standards-report.md`
+Read and follow the skills:
+- `index-query` skill at `copilot/skills/index-query/SKILL.md` - for reading index
+- `standards-validate` skill at `copilot/skills/standards-validate/SKILL.md` - for validation logic
 
-## Required Standards (MUST report ERROR if missing)
-
-| ID | Standard | Severity |
-|----|----------|----------|
-| STD-001 | API Versioning | HIGH |
-| STD-002 | Architecture Overview | MEDIUM |
-| STD-003 | Error Handling Strategy | HIGH |
-| STD-004 | Component Naming | MEDIUM |
-| STD-005 | Health Check Endpoints | MEDIUM |
-| STD-006 | Externalized Configuration | MEDIUM |
-| STD-007 | Logging Standards | MEDIUM |
+1. **List all .md files** in `governance/indexes/standards/`
+2. **Read each file** to build the standards knowledge base
+3. **Read the architecture document** from the provided path
+4. **Validate** the document against all standards found in the index
+5. **Write the validation report** to same directory as input
 
 ## Validation Logic
 
-For each REQUIRED standard:
+For each standard found in the indexed documents:
 - **PASS**: Document clearly addresses the standard
-- **ERROR**: Document does NOT address the standard
-
-For OPTIONAL standards (Database Schema):
-- **PASS**: Standard is addressed
-- **INFO**: Standard is not mentioned
+- **ERROR**: Required standard is NOT addressed in document
+- **WARN**: Recommended standard is not mentioned
 
 ## Report Format
 
@@ -87,29 +78,17 @@ Write the report in this exact format:
 **Status**: PASS | FAIL
 **Score**: X/100
 **Date**: <timestamp>
+**Index Files**: <count> files in governance/indexes/standards/
 
-## Required Standards
+## Standards Checked
 
-| Standard | Status | Details |
-|----------|--------|---------|
-| API Versioning | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Architecture Overview | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Error Handling | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Component Naming | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Health Check Endpoints | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Externalized Config | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-| Logging Standards | ✅ PASS / ❌ ERROR | <evidence or "NOT FOUND"> |
-
-## Optional Standards
-
-| Standard | Status | Details |
-|----------|--------|---------|
-| Database Schema | ✅ PASS / ℹ️ INFO | <details> |
+| Standard | Source | Status | Details |
+|----------|--------|--------|---------|
+| <standard name> | <index file> | ✅ PASS / ❌ ERROR / ⚠️ WARN | <evidence or "NOT FOUND"> |
 
 ## Errors (if any)
 
-- ❌ **STD-001**: API Versioning - NOT FOUND in document
-- ❌ **STD-003**: ...
+- ❌ **<standard>**: NOT FOUND in document (required by <index file>)
 
 ## Recommendations
 
@@ -126,7 +105,8 @@ After writing the report, announce:
 ✅ STANDARDS-AGENT: Complete
    Status: <PASS/FAIL>
    Score: <X/100>
+   Index Files: <count>
    Errors: <count>
-   Output: governance/output/standards-report.md
+   Output: governance/output/<PAGE_ID>/standards-report.md
 ───────────────────────────────────────────────────
 ```

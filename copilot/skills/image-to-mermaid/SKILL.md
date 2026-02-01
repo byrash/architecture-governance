@@ -1,44 +1,90 @@
 ---
 name: image-to-mermaid
-description: Convert diagram images to Mermaid syntax using OCR. Use when asked to convert image diagrams, extract diagrams from screenshots, or generate mermaid from images.
+description: Convert architecture diagram images (PNG, JPG, SVG) to Mermaid syntax using model vision. Use when asked to convert images to diagrams or extract diagrams from pictures.
 ---
 
 # Image to Mermaid Conversion
 
-Convert diagram images (PNG, JPG) to Mermaid syntax using OCR.
+Convert architecture diagram images to Mermaid using model vision capabilities. No scripts required.
 
-## Usage
+## Instructions
 
-Run this Python script:
+1. **Read the image** using the read tool with the image path
+2. **Analyze** the visual content
+3. **Generate** equivalent Mermaid syntax
 
-```bash
-python governance/scripts/image_to_mermaid.py \
-    --input <diagram.png> \
-    --output governance/output/diagrams/
+## Analysis Checklist
+
+When viewing an image, identify:
+
+| Element | Look For |
+|---------|----------|
+| **Nodes** | Boxes, circles, cylinders, icons with labels |
+| **Connections** | Arrows, lines (solid, dashed) |
+| **Labels** | Text on connections, annotations |
+| **Direction** | Top-to-bottom, left-to-right flow |
+| **Groups** | Clusters, boundaries, regions |
+
+## Mermaid Type Selection
+
+| Image Shows | Use Mermaid Type |
+|-------------|------------------|
+| Architecture/components | `flowchart TB` or `flowchart LR` |
+| Request/response flow | `sequenceDiagram` |
+| Class relationships | `classDiagram` |
+| Database schema | `erDiagram` |
+| Timeline/process | `flowchart LR` |
+| State transitions | `stateDiagram-v2` |
+
+## Output Format
+
+Generate clean Mermaid wrapped in code block:
+
+```mermaid
+flowchart TB
+    subgraph Frontend
+        A[Web App]
+        B[Mobile App]
+    end
+    
+    subgraph Backend
+        C[API Gateway]
+        D[Auth Service]
+        E[User Service]
+    end
+    
+    A --> C
+    B --> C
+    C --> D
+    C --> E
+    E --> F[(Database)]
 ```
 
-## How It Works
+## Node Shapes
 
-1. Uses OCR (Tesseract or Cloud Vision API) to extract text
-2. Identifies diagram elements (boxes, arrows, labels)
-3. Generates approximate Mermaid diagram syntax
-4. May require manual cleanup for complex diagrams
+Use appropriate shapes:
 
-## Example
+| Component Type | Mermaid Syntax |
+|----------------|----------------|
+| Service/App | `A[Service Name]` |
+| Database | `A[(Database)]` |
+| Decision | `A{Decision}` |
+| Process | `A([Process])` |
+| Data/Document | `A>Document]` |
 
-```bash
-python governance/scripts/image_to_mermaid.py \
-    --input architecture-diagram.png \
-    --output governance/output/diagrams/
-```
+## Connection Styles
 
-## Limitations
+| Connection Type | Mermaid Syntax |
+|-----------------|----------------|
+| Normal flow | `A --> B` |
+| With label | `A -->|label| B` |
+| Dotted | `A -.-> B` |
+| Thick | `A ==> B` |
 
-- OCR accuracy depends on image quality
-- Complex diagrams may need manual adjustment
-- Works best with clear, high-contrast diagrams
-- Flowcharts and sequence diagrams work best
+## Quality Guidelines
 
-## Output
-
-Mermaid diagram files in `governance/output/diagrams/`
+- Preserve the **structure** and **hierarchy** of the original
+- Keep **all visible labels** and text
+- Maintain **flow direction** (TB, LR)
+- Use **subgraphs** for grouped components
+- Add **connection labels** where shown
