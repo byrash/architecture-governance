@@ -611,15 +611,52 @@ def inline_mermaid_diagrams(md_content: str, diagram_mermaid_map: Dict[str, str]
     return md_content
 
 
-def fix_image_paths(md_content: str, attachments_folder: str) -> str:
-    """Fix image references to include the attachments folder prefix."""
-    # Pattern: ![anything](filename.ext) -> ![anything](attachments_folder/filename.ext)
+def fix_image_paths(md_content: str, attachments_folder: str, attachment_map: Dict[str, str]) -> str:
+    """Fix image references to include the attachments folder prefix and convert Confluence URLs."""
+    
+    # First, fix Confluence download URLs: /download/attachments/PAGE_ID/filename.png?version=...
+    # Pattern: ![alt](/download/attachments/123/file.png?...) -> ![alt](attachments/file.png)
+    def replace_confluence_url(match):
+        alt_text = match.group(1)
+        url_path = match.group(2)
+        
+        # Extract filename from URL (before query params)
+        filename_match = re.search(r'/([^/?]+)\.(png|jpg|jpeg|gif|svg|drawio)(?:\?|$)', url_path, re.IGNORECASE)
+        if filename_match:
+            filename = f"{filename_match.group(1)}.{filename_match.group(2)}"
+            # Check if this file exists in our attachments
+            if filename in attachment_map:
+                return f"![{alt_text}]({attachments_folder}/{filename})"
+            # Try case-insensitive match
+            for att_name in attachment_map:
+                if att_name.lower() == filename.lower():
+                    return f"![{alt_text}]({attachments_folder}/{att_name})"
+        
+        # Return original if no match found
+        return match.group(0)
+    
+    # Match Confluence download URLs
+    md_content = re.sub(
+        r'!\[([^\]]*)\]\((/download/attachments/[^)]+)\)',
+        replace_confluence_url,
+        md_content, flags=re.IGNORECASE
+    )
+    
+    # Also handle full Confluence URLs with domain
+    md_content = re.sub(
+        r'!\[([^\]]*)\]\((https?://[^/]+/download/attachments/[^)]+)\)',
+        replace_confluence_url,
+        md_content, flags=re.IGNORECASE
+    )
+    
+    # Fix simple filenames: ![anything](filename.ext) -> ![anything](attachments_folder/filename.ext)
     # Skip if already has the attachments prefix
     md_content = re.sub(
-        rf"!\[([^\]]*)\]\((?!{re.escape(attachments_folder)}/)([^/)][^)]*\.(png|jpg|jpeg|gif|svg|drawio))\)",
+        rf"!\[([^\]]*)\]\((?!{re.escape(attachments_folder)}/)(?!/download/)([^/)][^)]*\.(png|jpg|jpeg|gif|svg|drawio))\)",
         rf"![\1]({attachments_folder}/\2)",
         md_content, flags=re.IGNORECASE
     )
+    
     return md_content
 
 
@@ -803,9 +840,9 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         print(f"\n🔄 Replacing {len(diagram_mermaid_map)} diagram references with Mermaid...", file=sys.stderr)
         md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
     
-    # Fix image paths to include attachments folder prefix
+    # Fix image paths to include attachments folder prefix and convert Confluence URLs
     attachments_folder = "attachments"
-    md_content = fix_image_paths(md_content, attachments_folder)
+    md_content = fix_image_paths(md_content, attachments_folder, attachment_map)
     
     # Save final Markdown to page folder
     final_md_path = page_dir / "page.md"
