@@ -273,7 +273,7 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
     )
     
     if data_divs:
-        print(f"Found {len(data_divs)} drawio diagram data blocks", file=sys.stderr)
+        print(f"\n📊 DRAW.IO DETECTION: Found {len(data_divs)} Draw.io macro(s) in page HTML", file=sys.stderr)
     
     # Get list of all .drawio files from attachments
     drawio_attachments = [f for f in attachment_map.keys() if f.lower().endswith('.drawio')]
@@ -301,7 +301,7 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
                 check_name = diagram_name.lower()
                 if base_name == check_name or check_name in base_name or base_name in check_name:
                     diagram_map[macro_id] = filename
-                    print(f"  ✓ Matched .drawio file: {filename}", file=sys.stderr)
+                    print(f"   ✓ Macro {macro_id[:8]}... → {filename}", file=sys.stderr)
                     drawio_found = True
                     break
             
@@ -309,7 +309,7 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
             if not drawio_found and len(drawio_attachments) == 1 and len(data_divs) == 1:
                 filename = drawio_attachments[0]
                 diagram_map[macro_id] = filename
-                print(f"  ✓ Using single .drawio file: {filename}", file=sys.stderr)
+                print(f"   ✓ Macro {macro_id[:8]}... → {filename} (single match)", file=sys.stderr)
                 drawio_found = True
             
             # If still not found, try to use any unmatched .drawio file
@@ -317,7 +317,7 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
                 for filename in drawio_attachments:
                     if filename not in diagram_map.values():
                         diagram_map[macro_id] = filename
-                        print(f"  ✓ Using available .drawio file: {filename}", file=sys.stderr)
+                        print(f"   ✓ Macro {macro_id[:8]}... → {filename} (available)", file=sys.stderr)
                         drawio_found = True
                         break
             
@@ -367,7 +367,9 @@ def extract_drawio_diagrams(html: str, confluence: Confluence,
     # Handle case where we have .drawio attachments but no macro data blocks
     # (diagrams uploaded as attachments but not embedded via macro)
     if not data_divs and drawio_attachments:
-        print(f"  📊 Found {len(drawio_attachments)} .drawio attachment(s) without macro data", file=sys.stderr)
+        print(f"\n📊 DRAW.IO DETECTION: Found {len(drawio_attachments)} .drawio file(s) as attachments (not embedded)", file=sys.stderr)
+        for f in drawio_attachments:
+            print(f"   → {f}", file=sys.stderr)
     
     return diagram_map
 
@@ -813,15 +815,16 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         all_drawio_files = list(set(all_drawio_files + drawio_files))
         
         if all_drawio_files:
-            print(f"\n--- Converting {len(all_drawio_files)} Draw.io diagram(s) to Mermaid ---", file=sys.stderr)
+            print(f"\n📊 DRAW.IO → MERMAID: Converting {len(all_drawio_files)} diagram(s)", file=sys.stderr)
+            print(f"   Method: XML parsing (no vision needed)", file=sys.stderr)
             
             for drawio_file in all_drawio_files:
                 drawio_path = download_dir / drawio_file
                 if not drawio_path.exists():
-                    print(f"  ⚠ File not found: {drawio_file}", file=sys.stderr)
+                    print(f"   ⚠ File not found: {drawio_file}", file=sys.stderr)
                     continue
                 
-                print(f"Converting: {drawio_file}", file=sys.stderr)
+                print(f"   📄 {drawio_file} → parsing XML...", file=sys.stderr)
                 mermaid_code = convert_drawio_to_mermaid(drawio_path)
                 
                 if mermaid_code and "No diagram data extracted" not in mermaid_code:
@@ -829,11 +832,11 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                     diagram_mermaid_map[drawio_file] = mermaid_code
                     png_name = os.path.splitext(drawio_file)[0] + '.png'
                     diagram_mermaid_map[png_name] = mermaid_code
-                    print(f"  ✓ Converted {drawio_file} to Mermaid", file=sys.stderr)
+                    print(f"   ✅ {drawio_file} → Mermaid (success)", file=sys.stderr)
                 else:
-                    print(f"  ⚠ No diagram data extracted from {drawio_file}", file=sys.stderr)
+                    print(f"   ⚠ {drawio_file} → No diagram data extracted", file=sys.stderr)
         else:
-            print("\n--- No Draw.io diagrams found to convert ---", file=sys.stderr)
+            print("\n📊 DRAW.IO: No Draw.io diagrams found", file=sys.stderr)
     
     # Inline Mermaid diagrams
     if diagram_mermaid_map:
@@ -859,16 +862,24 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         json.dump(metadata, f, indent=2)
     
     # Print summary
-    remaining_images = len(re.findall(r'!\[[^\]]*\]\([^)]*\.(png|jpg|jpeg)\)', md_content))
+    remaining_image_refs = re.findall(r'!\[[^\]]*\]\(([^)]*\.(png|jpg|jpeg|gif|svg))\)', md_content)
+    remaining_images = len(remaining_image_refs)
     mermaid_count = len(re.findall(r'```mermaid', md_content))
     
-    print("\n✅ Ingestion complete!", file=sys.stderr)
-    print(f"   Final output: {final_md_path}", file=sys.stderr)
+    print("\n" + "="*60, file=sys.stderr)
+    print("✅ INGESTION COMPLETE", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    print(f"   Output: {final_md_path}", file=sys.stderr)
     print(f"   Attachments: {download_dir}", file=sys.stderr)
-    if mermaid_count > 0:
-        print(f"   ✅ Converted {mermaid_count} diagram(s) to Mermaid", file=sys.stderr)
+    print(f"\n   📊 Draw.io → Mermaid: {mermaid_count} diagram(s) converted", file=sys.stderr)
+    
     if remaining_images > 0:
-        print(f"   📋 {remaining_images} image reference(s) remain (non-diagram images)", file=sys.stderr)
+        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) require model vision to convert:", file=sys.stderr)
+        for img_path, ext in remaining_image_refs:
+            print(f"      → {img_path}", file=sys.stderr)
+        print(f"\n   ⚠️  Agent must read these images and convert to Mermaid", file=sys.stderr)
+    else:
+        print(f"\n   ✅ All diagrams converted - no images need vision", file=sys.stderr)
     
     return {
         'metadata': metadata,

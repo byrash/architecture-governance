@@ -1,7 +1,24 @@
 ---
 name: ingestion-agent
 description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
-tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
+tools:
+  [
+    'vscode',
+    'execute',
+    'read',
+    'edit',
+    'search',
+    'web',
+    'agent',
+    'ms-python.python/getPythonEnvironmentInfo',
+    'ms-python.python/getPythonExecutableCommand',
+    'ms-python.python/installPythonPackage',
+    'ms-python.python/configurePythonEnvironment',
+    'ms-toolsai.jupyter/configureNotebook',
+    'ms-toolsai.jupyter/listNotebookPackages',
+    'ms-toolsai.jupyter/installNotebookPackages',
+    'todo',
+  ]
 ---
 
 # Ingestion Agent
@@ -10,50 +27,55 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 
 ## ⚠️ CRITICAL: IMAGE CONVERSION RULES
 
-**When converting images to Mermaid, you MUST use actual vision:**
+**Read image files and convert directly to Mermaid:**
 
-| ✅ DO | ❌ DO NOT |
-|-------|-----------|
-| Read the image file with vision | Guess content from filename |
-| Describe what you see in the image | Assume what a diagram might contain |
-| Generate Mermaid matching observations | Create generic/sample diagrams |
-| Say "cannot read" if vision fails | Make up content you didn't see |
+| ✅ DO                   | ❌ DO NOT                       |
+| ----------------------- | ------------------------------- |
+| Read the image file     | Guess content from filename     |
+| Output Mermaid directly | Make up diagrams you didn't see |
 
-**Every image conversion MUST follow this pattern:**
-1. Read image file → 2. Describe what you see → 3. Generate matching Mermaid
+**Every image conversion:**
+
+1. Read image file → `governance/output/<PAGE_ID>/attachments/<filename>.png`
+2. Output Mermaid code
+3. Replace image reference in page.md with the Mermaid block
 
 ## Input Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `page-id` | Yes | Confluence page ID to ingest |
-| `index` | No | Index name to copy final page.md (`patterns`, `standards`, or `security`) |
+| Parameter | Required | Description                                                               |
+| --------- | -------- | ------------------------------------------------------------------------- |
+| `page-id` | Yes      | Confluence page ID to ingest                                              |
+| `index`   | No       | Index name to copy final page.md (`patterns`, `standards`, or `security`) |
 
 ## Modes
 
-| Mode | When | Output |
-|------|------|--------|
-| **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only |
-| **Ingest** | index provided | Also copies to `governance/indexes/<index>/<filename>.md` |
+| Mode           | When              | Output                                                    |
+| -------------- | ----------------- | --------------------------------------------------------- |
+| **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only                |
+| **Ingest**     | index provided    | Also copies to `governance/indexes/<index>/<filename>.md` |
 
 ## Example Invocations
 
 **Governance mode** (for validation):
+
 ```
 @ingestion-agent Ingest Confluence page 123456789
 ```
 
 **Ingest mode** (add to patterns index):
+
 ```
 @ingestion-agent Ingest Confluence page 123456789 to patterns
 ```
 
 **Ingest mode** (add to standards index):
+
 ```
 @ingestion-agent Ingest Confluence page 123456789 to standards
 ```
 
 **Ingest mode** (add to security index):
+
 ```
 @ingestion-agent Ingest Confluence page 123456789 to security
 ```
@@ -133,26 +155,31 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 #### A. Scan for Confluence Page Links
 
 Look for these patterns in page.md:
+
 - `[Link Text](/wiki/spaces/SPACE/pages/PAGEID/...)`
 - `[Link Text](https://company.atlassian.net/wiki/spaces/SPACE/pages/PAGEID/...)`
 - `<a href="/wiki/spaces/...">...</a>`
 
 **For EACH link found - LOOP:**
+
 1. Extract PAGE_ID from link
 2. Use `confluence-ingest` skill to download linked page
 3. Read `governance/output/<LINKED_PAGE_ID>/page.md`
 4. Replace link in main page.md with inlined content:
 
    **BEFORE:**
+
    ```markdown
    See [Architecture Details](/wiki/spaces/ARCH/pages/987654321/Architecture-Details)
    ```
-   
+
    **AFTER:**
+
    ```markdown
    See details below:
-   
+
    ### Architecture Details
+
    [Full content from page 987654321 inlined here]
    ```
 
@@ -162,29 +189,36 @@ Look for these patterns in page.md:
 #### B. Scan for Confluence Tabs
 
 Look for tab macros in the content:
+
 - `{ui-tabs}` / `{ui-tab}`
 - `## Tab:` sections
 
 **For EACH tab - ensure ALL are included:**
+
 ```markdown
 ## Tab: Overview
+
 [Full content from Overview tab]
 
-## Tab: Architecture  
+## Tab: Architecture
+
 [Full content from Architecture tab]
 
 ## Tab: Security
+
 [Full content from Security tab]
 ```
 
 #### C. Scan for Include/Embed Macros
 
 Look for:
-- `{include:Page Title}` 
+
+- `{include:Page Title}`
 - `{excerpt-include:Page Title}`
 - `{children}` macro
 
 **For EACH include - LOOP:**
+
 1. Identify the page being included
 2. Fetch that page (go to Step 1)
 3. Inline the content
@@ -193,6 +227,7 @@ Look for:
 #### D. Scan for Child Page References
 
 If the page has child pages that are referenced:
+
 1. Fetch each child page
 2. Inline as subsections
 3. Re-scan child content for more links
@@ -200,6 +235,7 @@ If the page has child pages that are referenced:
 ---
 
 **LOOP EXIT CONDITION**: Stop when page.md has:
+
 - ✅ ZERO `/wiki/spaces/` links remaining
 - ✅ ZERO `atlassian.net/wiki/` links remaining
 - ✅ ZERO unresolved include macros
@@ -207,6 +243,7 @@ If the page has child pages that are referenced:
 - ✅ ALL referenced content inlined
 
 **⚠️ PREVENT INFINITE LOOPS:**
+
 - Track all visited PAGE_IDs in a list
 - Before fetching a page, check if already visited
 - If already visited → insert reference note instead of re-fetching:
@@ -214,34 +251,25 @@ If the page has child pages that are referenced:
   [See section: Page Title (already included above)]
   ```
 
-### Step 2: Convert ALL Images to Mermaid (MANDATORY - USE VISION)
+### Step 2: Convert ALL Images to Mermaid (MANDATORY)
 
-**Use skill**: `image-to-mermaid` at `.github/skills/image-to-mermaid/SKILL.md`
+**Use skill**: `image-to-mermaid` at `copilot/skills/image-to-mermaid/SKILL.md`
 
 **Note**: Draw.io diagrams are automatically converted to Mermaid by the confluence-ingest skill.
 
-**CRITICAL**: ALL remaining images MUST be converted to Mermaid using ACTUAL VISION.
-
-⚠️ **DO NOT ASSUME OR GUESS** - You MUST actually READ each image file:
-
-```
-# CORRECT - Actually read the image with vision
-Read file: governance/output/<PAGE_ID>/attachments/Template_BusinessContext.png
-→ Vision sees: boxes labeled "Customer", "System", arrows between them
-→ Generate Mermaid based on WHAT YOU ACTUALLY SEE
-
-# WRONG - Do NOT do this
-See filename "Template_BusinessContext.png"
-→ Assume it's a business context diagram
-→ Make up generic Mermaid ← THIS IS WRONG!
-```
-
 For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
-1. **READ the image file** using the read tool (this invokes vision)
-2. **LOOK at the actual content** - what boxes, labels, arrows do you SEE?
-3. **DESCRIBE what you see** before generating Mermaid
-4. **Generate Mermaid** that EXACTLY matches what you saw
-5. If you cannot read the image, say so explicitly - do NOT make up content
+
+1. **Read the image file**
+
+   ```
+   Read file: governance/output/<PAGE_ID>/attachments/<filename>.png
+   ```
+
+2. **Output Mermaid code** that represents the diagram
+
+3. **Store for Step 3** - keep track of which image maps to which Mermaid
+
+After all images converted, proceed to Step 3
 
 ### Step 3: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
 
@@ -249,17 +277,18 @@ For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
 
 Read `governance/output/<PAGE_ID>/page.md` and replace ALL image references **in-place**:
 
-| Find | Replace With |
-|------|--------------|
+| Find                           | Replace With                           |
+| ------------------------------ | -------------------------------------- |
 | `![...](attachments/*.drawio)` | Already converted by confluence-ingest |
-| `![...](attachments/*.png)` | Inline mermaid from Step 2 |
-| `![...](attachments/*.jpg)` | Inline mermaid from Step 2 |
-| `![...](attachments/*.svg)` | Inline mermaid from Step 2 |
-| `![...](attachments/*.gif)` | Inline mermaid from Step 2 |
+| `![...](attachments/*.png)`    | Inline mermaid from Step 2             |
+| `![...](attachments/*.jpg)`    | Inline mermaid from Step 2             |
+| `![...](attachments/*.svg)`    | Inline mermaid from Step 2             |
+| `![...](attachments/*.gif)`    | Inline mermaid from Step 2             |
 
 **Example transformation:**
 
 Before:
+
 ```markdown
 ## Architecture Overview
 
@@ -271,7 +300,8 @@ The diagram above shows...
 ```
 
 After:
-```markdown
+
+````markdown
 ## Architecture Overview
 
 Our system uses microservices:
@@ -281,8 +311,10 @@ flowchart TB
     A[API Gateway] --> B[Auth Service]
     A --> C[User Service]
 ```
+````
 
 The diagram above shows...
+
 ```
 
 The surrounding text, headings, and document structure remain **exactly the same**.
@@ -336,70 +368,71 @@ If index name was provided (`patterns`, `standards`, or `security`):
 ## Logging
 
 ```
+
 ───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Starting ingestion
-   Page ID: <PAGE_ID>
-   Mode: governance | ingest
-   Index: <patterns|standards|security> (if ingest mode)
+Page ID: <PAGE_ID>
+Mode: governance | ingest
+Index: <patterns|standards|security> (if ingest mode)
 ───────────────────────────────────────────────────
+
 ```
 
 ```
+
 ───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Downloading Confluence page
-   Skill: confluence-ingest
+Skill: confluence-ingest
 ───────────────────────────────────────────────────
+
 ```
 
 ```
+
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Reading image with vision
-   Skill: image-to-mermaid
-   File: <filename>.png
-   Action: READING IMAGE FILE NOW...
+📥 INGESTION-AGENT: Converting images to Mermaid
+Images: <count> found
 ───────────────────────────────────────────────────
 
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Image content observed
-   File: <filename>.png
-   I SEE: <describe actual boxes, labels, arrows visible>
-   Nodes: <list actual node labels you see>
-   Connections: <list actual connections you see>
+📥 INGESTION-AGENT: Image → Mermaid
+File: <filename>.png ✅
 ───────────────────────────────────────────────────
 
-───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Generating Mermaid from observation
-   File: <filename>.png
-   Mermaid: <generated based on what you described above>
-───────────────────────────────────────────────────
 ```
 
 ```
+
 ───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Copying to index
-   From: governance/output/<PAGE_ID>/page.md
-   To: governance/indexes/<index>/<PAGE_ID>-<title>.md
+From: governance/output/<PAGE_ID>/page.md
+To: governance/indexes/<index>/<PAGE_ID>-<title>.md
 ───────────────────────────────────────────────────
+
 ```
 
 ```
+
 ───────────────────────────────────────────────────
 ✅ INGESTION-AGENT: Complete
-   Output: governance/output/<PAGE_ID>/page.md
-   Indexed: governance/indexes/<index>/<PAGE_ID>-<title>.md (if ingest mode)
-   
-   Content:
-   - Tabs processed: <count>
-   - Linked pages inlined: <count>
-   - Drawio → Mermaid: <count>
-   - Images → Mermaid: <count>
-   - Broken refs removed: <count>
-   
-   Validation:
-   - Image refs: 0 ✅ (all converted to Mermaid)
-   - External links: 0 ✅
-   - 100% text/Mermaid: YES ✅
-───────────────────────────────────────────────────
+Output: governance/output/<PAGE_ID>/page.md
+Indexed: governance/indexes/<index>/<PAGE_ID>-<title>.md (if ingest mode)
+
+Content:
+
+- Tabs processed: <count>
+- Linked pages inlined: <count>
+- Drawio → Mermaid: <count>
+- Images → Mermaid: <count>
+- Broken refs removed: <count>
+
+Validation:
+
+- Image refs: 0 ✅ (all converted to Mermaid)
+- External links: 0 ✅
+- 100% text/Mermaid: YES ✅
+  ───────────────────────────────────────────────────
+
 ```
 
 ## Output
@@ -424,3 +457,4 @@ If index name was provided (`patterns`, `standards`, or `security`):
 - ALL tabs, ALL linked content, ALL diagrams included
 - Can be copied anywhere and renders the complete page
 - No external access needed to view full content
+```
