@@ -251,13 +251,22 @@ If the page has child pages that are referenced:
   [See section: Page Title (already included above)]
   ```
 
-### Step 2: Convert ALL Images to Mermaid (MANDATORY)
+### Step 2: Convert Remaining Images to Mermaid (IF ANY)
 
 **Use skill**: `image-to-mermaid` at `copilot/skills/image-to-mermaid/SKILL.md`
 
-**Note**: Draw.io diagrams are automatically converted to Mermaid by the confluence-ingest skill.
+**Draw.io diagrams are already converted** by the script (FREE via XML parsing).
 
-For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
+Check the script output:
+- If `"All diagrams converted - no vision needed"` → **Skip to Step 3**
+- If images are listed → Convert only those using vision
+
+```
+🖼️  IMAGES NEED VISION: 1 image(s) (costs $$ - no .drawio source)
+   → attachments/screenshot.png
+```
+
+For each image listed as needing vision:
 
 1. **Read the image file**
 
@@ -269,7 +278,7 @@ For EVERY image file (`.png`, `.jpg`, `.svg`, `.gif`) in `attachments/`:
 
 3. **Store for Step 3** - keep track of which image maps to which Mermaid
 
-After all images converted, proceed to Step 3
+After all listed images converted, proceed to Step 3
 
 ### Step 3: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
 
@@ -277,13 +286,12 @@ After all images converted, proceed to Step 3
 
 Read `governance/output/<PAGE_ID>/page.md` and replace ALL image references **in-place**:
 
-| Find                           | Replace With                           |
-| ------------------------------ | -------------------------------------- |
-| `![...](attachments/*.drawio)` | Already converted by confluence-ingest |
-| `![...](attachments/*.png)`    | Inline mermaid from Step 2             |
-| `![...](attachments/*.jpg)`    | Inline mermaid from Step 2             |
-| `![...](attachments/*.svg)`    | Inline mermaid from Step 2             |
-| `![...](attachments/*.gif)`    | Inline mermaid from Step 2             |
+| Find | Status |
+|------|--------|
+| `![...](attachments/*.drawio)` | Already converted by script (FREE) |
+| `![...](attachments/*.png)` | Already converted OR needs Step 2 |
+| `![...](attachments/*.jpg)` | Needs Step 2 if listed |
+| `![...](attachments/*.svg)` | Needs Step 2 if listed |
 
 **Example transformation:**
 

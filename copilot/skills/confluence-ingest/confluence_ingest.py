@@ -802,21 +802,21 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     md_content = convert_html_to_markdown(html_content, attachment_map)
     md_content = f"# {title}\n\n{md_content}"
     
-    # Convert Draw.io diagrams to Mermaid
+    # Convert Draw.io diagrams to Mermaid using XML parsing (FREE - no model costs)
     diagram_mermaid_map = {}
     if convert_diagrams:
-        # Scan download directory for ALL .drawio files (more reliable than just drawio_files list)
+        # Scan download directory for ALL .drawio files
         all_drawio_files = []
         if download_dir.exists():
             all_drawio_files = [f.name for f in download_dir.iterdir() 
                                if f.is_file() and (f.suffix.lower() == '.drawio' or is_drawio_file(str(f)))]
         
-        # Also include any from the drawio_files list that might have different paths
+        # Also include any from the drawio_files list
         all_drawio_files = list(set(all_drawio_files + drawio_files))
         
         if all_drawio_files:
-            print(f"\n📊 DRAW.IO → MERMAID: Converting {len(all_drawio_files)} diagram(s)", file=sys.stderr)
-            print(f"   Method: XML parsing (no vision needed)", file=sys.stderr)
+            print(f"\n📊 DRAW.IO → MERMAID (XML parsing - FREE, no model cost)", file=sys.stderr)
+            print(f"   Found {len(all_drawio_files)} Draw.io file(s)", file=sys.stderr)
             
             for drawio_file in all_drawio_files:
                 drawio_path = download_dir / drawio_file
@@ -828,19 +828,19 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                 mermaid_code = convert_drawio_to_mermaid(drawio_path)
                 
                 if mermaid_code and "No diagram data extracted" not in mermaid_code:
-                    # Map both .drawio and .png versions
+                    # Map both .drawio and .png versions (PNG preview uses same name)
                     diagram_mermaid_map[drawio_file] = mermaid_code
                     png_name = os.path.splitext(drawio_file)[0] + '.png'
                     diagram_mermaid_map[png_name] = mermaid_code
                     print(f"   ✅ {drawio_file} → Mermaid (success)", file=sys.stderr)
                 else:
-                    print(f"   ⚠ {drawio_file} → No diagram data extracted", file=sys.stderr)
+                    print(f"   ⚠ {drawio_file} → XML parsing failed (agent will use vision on PNG)", file=sys.stderr)
         else:
-            print("\n📊 DRAW.IO: No Draw.io diagrams found", file=sys.stderr)
+            print("\n📊 DRAW.IO: No .drawio files found", file=sys.stderr)
     
-    # Inline Mermaid diagrams
+    # Inline Mermaid diagrams (replace image refs with Mermaid)
     if diagram_mermaid_map:
-        print(f"\n🔄 Replacing {len(diagram_mermaid_map)} diagram references with Mermaid...", file=sys.stderr)
+        print(f"\n🔄 Replacing {len(diagram_mermaid_map)//2} diagram reference(s) with Mermaid...", file=sys.stderr)
         md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
     
     # Fix image paths to include attachments folder prefix and convert Confluence URLs
@@ -871,15 +871,17 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     print("="*60, file=sys.stderr)
     print(f"   Output: {final_md_path}", file=sys.stderr)
     print(f"   Attachments: {download_dir}", file=sys.stderr)
-    print(f"\n   📊 Draw.io → Mermaid: {mermaid_count} diagram(s) converted", file=sys.stderr)
+    
+    if mermaid_count > 0:
+        print(f"\n   📊 Draw.io → Mermaid: {mermaid_count} diagram(s) converted (FREE via XML parsing)", file=sys.stderr)
     
     if remaining_images > 0:
-        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) require model vision to convert:", file=sys.stderr)
+        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) (costs $$ - no .drawio source)", file=sys.stderr)
         for img_path, ext in remaining_image_refs:
             print(f"      → {img_path}", file=sys.stderr)
-        print(f"\n   ⚠️  Agent must read these images and convert to Mermaid", file=sys.stderr)
+        print(f"\n   📋 Agent: Read each image and convert to Mermaid", file=sys.stderr)
     else:
-        print(f"\n   ✅ All diagrams converted - no images need vision", file=sys.stderr)
+        print(f"\n   ✅ All diagrams converted - no vision needed (saved $$$)", file=sys.stderr)
     
     return {
         'metadata': metadata,

@@ -1,33 +1,35 @@
 ---
 name: confluence-ingest
-description: Ingest Confluence pages by page ID, downloading content and all attachments, converting Draw.io diagrams to Mermaid, and producing a self-contained Markdown file. Use when asked to fetch, import, or ingest Confluence pages or documentation.
+description: Ingest Confluence pages by page ID, downloading content and all attachments, converting Draw.io diagrams to Mermaid via XML parsing (free). Produces a Markdown file ready for validation.
 ---
 
 # Confluence Page Ingestion
 
 Fetch Confluence pages and produce a self-contained Markdown file with:
 - All content including tabs, linked images, and embedded content
-- Draw.io diagrams automatically converted to Mermaid code blocks
-- All attachments downloaded locally with correct path references
+- **Draw.io diagrams converted to Mermaid via XML parsing (FREE - no model cost)**
+- Remaining images listed for agent to convert using vision (only when no .drawio source)
+
+## Cost-Efficient Approach
+
+| Diagram Type | Conversion Method | Cost |
+|--------------|-------------------|------|
+| Draw.io (has `.drawio` file) | XML parsing | **FREE** |
+| PNG/JPG (no `.drawio` source) | Agent vision | $$$ |
 
 ## Setup (First Run Only)
 
 ```bash
-# 1. Create virtual environment if not exists
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
-
-# 2. Activate virtual environment
 source .venv/bin/activate
-
-# 3. Install dependencies
 pip install -r requirements.txt
 ```
 
 ## Environment Variables
 
-Create `.env` file in workspace root (auto-loaded by script):
+Create `.env` file in workspace root:
 ```
 CONFLUENCE_URL=https://your-company.atlassian.net
 CONFLUENCE_API_TOKEN=your-personal-access-token
@@ -35,112 +37,55 @@ CONFLUENCE_API_TOKEN=your-personal-access-token
 
 ## Usage
 
-### Ingest a page by ID
-
 ```bash
-# Activate venv and run
 source .venv/bin/activate
-python .github/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
+python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 ```
-
-Output is saved to `governance/output/`
-
-### Page ID Location
-
-Find the page ID:
-- From URL: `https://company.atlassian.net/wiki/spaces/SPACE/pages/123456789/Page+Title` → ID is `123456789`
-- Or from page menu: "..." → "Page Information" → Page ID shown
 
 ## What Gets Produced
 
-| Content | Location | Description |
-|---------|----------|-------------|
-| Final Markdown | `governance/output/<PAGE_ID>/page.md` | Self-contained with Mermaid diagrams inlined |
-| Metadata | `governance/output/<PAGE_ID>/metadata.json` | Page info, attachments list |
-| Attachments | `governance/output/<PAGE_ID>/attachments/` | PNG, JPG, drawio, PDF, etc. |
-| Debug HTML | `governance/output/<PAGE_ID>/<Title>.html` | Intermediate HTML for debugging |
+| Content | Location |
+|---------|----------|
+| Markdown | `governance/output/<PAGE_ID>/page.md` |
+| Metadata | `governance/output/<PAGE_ID>/metadata.json` |
+| Attachments | `governance/output/<PAGE_ID>/attachments/` |
 
-## Key Features
-
-### Automatic Draw.io Conversion
-- Detects `.drawio` files by extension AND content (`<mxfile>` markers)
-- Automatically converts Draw.io diagrams to Mermaid (built-in)
-- Replaces image references with Mermaid code blocks inline
-
-### Confluence Tabs Support
-- Extracts all tab content (aui-tabs containers)
-- Converts hidden tabs to visible sections with headers
-- All tab content included in final Markdown
-
-### Image Embedding
-- Downloads PNG preview images for Draw.io macros
-- Parses base64 metadata from drawio-macro-data divs
-- Replaces Confluence URLs with local paths
-
-### HTML Processing
-- Uses `body.view` format for better rendering quality
-- Falls back to `body.storage` if view unavailable
-- Uses `markdownify` library for high-quality conversion
-
-## Example
-
-```bash
-# Set credentials (PAT only)
-export CONFLUENCE_URL="https://mycompany.atlassian.net"
-export CONFLUENCE_API_TOKEN="your-personal-access-token"
-
-# Ingest page with automatic diagram conversion
-source .venv/bin/activate
-python .github/skills/confluence-ingest/confluence_ingest.py --page-id 123456789
-
-# Output:
-#   governance/output/123456789/page.md         <- Self-contained Markdown
-#   governance/output/123456789/attachments/    <- All attachments
-#   governance/output/123456789/metadata.json   <- Metadata
-```
-
-## Output Structure
+## Script Output Example
 
 ```
-governance/output/<PAGE_ID>/        # Page folder
-├── page.md                         # Self-contained Markdown (main output)
-├── metadata.json                   # Page metadata and attachment list
-├── <Title>.html                    # Intermediate HTML (debug)
-└── attachments/                    # All attachments
-    ├── architecture.drawio         # Original Draw.io file
-    ├── architecture.png            # PNG preview (if downloaded)
-    ├── screenshot.png              # Other images
-    └── data.xlsx                   # Other attachments
+📊 DRAW.IO → MERMAID (XML parsing - FREE, no model cost)
+   Found 3 Draw.io file(s)
+   📄 architecture.drawio → parsing XML...
+   ✅ architecture.drawio → Mermaid (success)
+   📄 data-flow.drawio → parsing XML...
+   ✅ data-flow.drawio → Mermaid (success)
+
+🔄 Replacing 2 diagram reference(s) with Mermaid...
+
+============================================================
+✅ INGESTION COMPLETE
+============================================================
+   Output: governance/output/123456/page.md
+
+   📊 Draw.io → Mermaid: 2 diagram(s) converted (FREE via XML parsing)
+
+   🖼️  IMAGES NEED VISION: 1 image(s) (costs $$ - no .drawio source)
+      → attachments/screenshot.png
+
+   📋 Agent: Read each image and convert to Mermaid
 ```
 
-## Options
+## Next Steps
 
-| Flag | Description |
-|------|-------------|
-| `--page-id`, `-p` | Required. Confluence page ID |
-| `--output-dir`, `-o` | Output directory (default: `governance/output`) |
-| `--no-convert` | Skip Draw.io to Mermaid conversion |
-| `--mode`, `-m` | Mode: `governance` or `index` (default: `governance`) |
+After running this script, the ingestion-agent should:
 
-## Output Markdown Quality
+1. **Check if any images remain** - only those without `.drawio` source need vision
+2. **Convert remaining images** using vision (costs money, but unavoidable)
+3. **Replace image references** in page.md with Mermaid blocks
 
-The final `page.md` file is:
-- **Self-contained**: No external dependencies or broken links
-- **Mermaid-ready**: Draw.io diagrams converted to Mermaid code blocks
-- **Image paths fixed**: References point to `attachments/` folder
-- **Tabs flattened**: All tab content visible as sections
+## Why XML Parsing for Draw.io?
 
-## Next Steps (MANDATORY)
-
-After running this script, the ingestion-agent MUST:
-1. **Convert ALL remaining images to Mermaid** using `image-to-mermaid` skill
-2. **Replace image references** in page.md with inline Mermaid blocks
-3. **Validate** that page.md has ZERO image references
-
-**WHY**: Validation agents compare page.md against index rules using text analysis. They cannot read image files. For validation to work, ALL diagrams must be Mermaid text.
-
-Final `page.md` requirements:
-- ✅ Draw.io → Mermaid (automatic by this script)
-- ⚠️ PNG/JPG/SVG → Mermaid (requires `image-to-mermaid` skill)
-- ✅ ZERO image references remaining
-- ✅ 100% text/Mermaid content
+- **FREE** - runs locally, no model API calls
+- **Fast** - no network latency
+- **Deterministic** - same input always produces same output
+- **Accurate** - parses actual diagram structure, not image interpretation
