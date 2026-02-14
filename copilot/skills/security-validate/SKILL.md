@@ -1,5 +1,6 @@
 ---
 name: security-validate
+category: security
 description: Validate architecture document against security rules from the index. Use when asked to check security, validate threat models, or verify security compliance.
 ---
 
@@ -23,9 +24,47 @@ Validate architecture document against all security documents in the index.
 ## Validation Approach
 
 For each security control found in index files:
-- Search the document for evidence of the control
+- Search the document **text sections** for evidence of the control
+- Search **Mermaid diagram code blocks** for architectural evidence (see below)
 - Look for security mechanisms, protocols, configurations
 - Identify any vulnerabilities or security gaps
+
+### Interpreting Mermaid Diagrams as Evidence
+
+The document may contain `\`\`\`mermaid` code blocks representing architecture diagrams. These are **first-class evidence** -- treat them with the same weight as written text.
+
+**How to extract security evidence from Mermaid:**
+
+| Mermaid Element | What to Check | Security Evidence |
+|-----------------|---------------|-------------------|
+| Edge labels (`--\|HTTPS\|-->`, `--\|mTLS\|-->`) | Protocol between components | Encryption in transit, TLS requirements |
+| Node names (`Gateway`, `Auth`, `WAF`) | Component types | Presence of security components (API gateway, WAF, auth service) |
+| Subgraph boundaries (`subgraph DMZ`, `subgraph Internal`) | Network segmentation | Trust zones, isolation boundaries |
+| Missing edges (A has no path to B) | Forbidden communication | Access control, data flow restrictions |
+| Arrow direction (A --> B but not B --> A) | One-way data flow | Data flow controls, read-only access patterns |
+| Style/class annotations (`:::critical`, color notes) | Classification | Sensitivity levels, security tiers |
+
+**Example -- matching a rule against a diagram:**
+
+Rule: *"All external vendor traffic must route through API gateway"*
+Keywords: `vendor, gateway, external`
+
+```mermaid
+flowchart TB
+    subgraph External
+        Vendor[Vendor API]
+    end
+    subgraph Internal
+        GW[API Gateway]
+        App[Service]
+    end
+    Vendor -->|HTTPS| GW
+    GW -->|mTLS| App
+```
+
+Evidence: `Vendor -->|HTTPS| GW` confirms vendor traffic routes through gateway. No direct `Vendor --> App` edge confirms isolation. **Status: PASS**
+
+**Important**: If a rule's keywords appear in Mermaid node names, edge labels, or subgraph titles, that is valid evidence. Cite the specific Mermaid line(s) in your report's Evidence column.
 
 ## Vulnerabilities to Detect
 
@@ -52,6 +91,7 @@ Write to `governance/output/<PAGE_ID>-security-report.md`:
 # Security Validation Report
 
 **Generated**: [timestamp]
+**Model**: <actual model that produced this report>
 **Page ID**: <PAGE_ID>
 **Document**: governance/output/<PAGE_ID>/page.md
 **Index Files**: [count] files from governance/indexes/security/

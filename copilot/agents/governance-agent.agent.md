@@ -1,6 +1,7 @@
 ---
 name: governance-agent
 description: Architecture governance orchestrator. Coordinates validation pipeline by triggering other agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
+model: gpt-4.1
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'ms-toolsai.jupyter/configureNotebook', 'ms-toolsai.jupyter/listNotebookPackages', 'ms-toolsai.jupyter/installNotebookPackages', 'todo']
 handoffs:
   - label: "Step 1: Ingest Page"
@@ -24,6 +25,16 @@ handoffs:
 # Architecture Governance Orchestrator
 
 You orchestrate the full governance validation pipeline by **triggering other agents** using the `agent` tool.
+
+## Skill Discovery
+
+Before starting your task, discover relevant skills:
+
+1. List all directories in `.github/skills/`
+2. Read the SKILL.md frontmatter (name, category, description) in each
+3. **Primary**: Use all skills where `category` matches: `reporting`
+4. **Fallback**: For any SKILL.md without a `category` field, read the `description` and use the skill if it is relevant to report merging or dashboard generation
+5. Read and follow each discovered skill when needed in the workflow
 
 ## How to Trigger Other Agents
 
@@ -72,7 +83,7 @@ Wait for validation to complete.
 
 ### Step 5: Merge Reports
 
-Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL.md`
+Use the discovered `merge-reports` skill (category: `reporting`).
 
 1. Read all three reports from `governance/output/`
 2. Calculate weighted score: `(Patterns × 0.30) + (Standards × 0.30) + (Security × 0.40)`
@@ -80,7 +91,7 @@ Read and follow the `merge-reports` skill at `.github/skills/merge-reports/SKILL
 
 ### Step 6: Generate HTML Dashboard
 
-Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html/SKILL.md`
+Use the discovered `markdown-to-html` skill (category: `reporting`).
 
 1. Read the merged report
 2. Generate HTML dashboard
@@ -96,6 +107,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 🏛️ GOVERNANCE-AGENT: Starting Governance Pipeline
 ═══════════════════════════════════════════════════════════════════
    Page ID: <PAGE_ID>
+   Model: <actual model running this agent>
    Pipeline Mode: Full Validation
    Steps: Ingest → Patterns → Standards → Security → Merge → HTML
 ═══════════════════════════════════════════════════════════════════
@@ -133,7 +145,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
    Action: Using agent tool to invoke patterns-agent
    Target Agent: patterns-agent
    Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-   Rules Source: governance/indexes/patterns/rules.md
+   Rules Source: governance/indexes/patterns/_all.rules.md
    Expected Output: governance/output/<PAGE_ID>-patterns-report.md
 ───────────────────────────────────────────────────
 ```
@@ -156,7 +168,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
    Action: Using agent tool to invoke standards-agent
    Target Agent: standards-agent
    Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-   Rules Source: governance/indexes/standards/rules.md
+   Rules Source: governance/indexes/standards/_all.rules.md
    Expected Output: governance/output/<PAGE_ID>-standards-report.md
 ───────────────────────────────────────────────────
 ```
@@ -179,7 +191,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
    Action: Using agent tool to invoke security-agent
    Target Agent: security-agent
    Prompt: "Validate governance/output/<PAGE_ID>/page.md"
-   Rules Source: governance/indexes/security/rules.md
+   Rules Source: governance/indexes/security/_all.rules.md
    Expected Output: governance/output/<PAGE_ID>-security-report.md
 ───────────────────────────────────────────────────
 ```
@@ -265,6 +277,7 @@ Read and follow the `markdown-to-html` skill at `.github/skills/markdown-to-html
 ✅ GOVERNANCE-AGENT: Pipeline Complete
 ═══════════════════════════════════════════════════════════════════
    Page ID: <PAGE_ID>
+   Model: <actual model that ran this agent>
    
    RESULTS:
    ├── Patterns:  <X>/100 (weight: 30%)

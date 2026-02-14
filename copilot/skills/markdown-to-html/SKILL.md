@@ -1,5 +1,6 @@
 ---
 name: markdown-to-html
+category: reporting
 description: Convert governance report to HTML dashboard. Use when asked to generate HTML or create dashboard.
 ---
 

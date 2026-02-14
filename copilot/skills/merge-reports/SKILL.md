@@ -1,5 +1,6 @@
 ---
 name: merge-reports
+category: reporting
 description: Merge validation reports into final governance report. Use when asked to combine reports or create final governance report.
 ---
 

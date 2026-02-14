@@ -41,6 +41,9 @@ class Node:
     is_group: bool = False
     x: float = 0
     y: float = 0
+    fill_color: Optional[str] = None
+    stroke_color: Optional[str] = None
+    font_color: Optional[str] = None
 
 
 @dataclass
@@ -50,6 +53,8 @@ class Edge:
     target: str
     label: str = ""
     style: str = "solid"  # solid, dashed, dotted, thick
+    arrow_start: bool = False  # arrow at source end (for bidirectional)
+    arrow_end: bool = True     # arrow at target end (default)
 
 
 @dataclass  
@@ -213,6 +218,25 @@ def has_arrow(style: Dict[str, str], end: str = 'end') -> bool:
     return arrow.lower() not in ('none', 'open', '')
 
 
+def extract_colors(style: Dict[str, str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Extract fill, stroke, and font colors from Draw.io style.
+    Returns (fill_color, stroke_color, font_color) as hex strings or None.
+    Skips default/white/none colors.
+    """
+    skip_values = {'none', 'default', '', '#ffffff', '#FFFFFF', 'white'}
+
+    fill = style.get('fillColor', '').strip()
+    stroke = style.get('strokeColor', '').strip()
+    font = style.get('fontColor', '').strip()
+
+    fill_color = fill if fill and fill.lower() not in skip_values else None
+    stroke_color = stroke if stroke and stroke.lower() not in skip_values else None
+    font_color = font if font and font.lower() not in skip_values else None
+
+    return fill_color, stroke_color, font_color
+
+
 def decompress_diagram_data(data: str) -> Optional[str]:
     """
     Decompress Draw.io diagram data using multiple methods.
@@ -371,11 +395,15 @@ def extract_graph_elements(root: ET.Element) -> Tuple[List[Node], List[Edge], Di
         # Check if this is an edge
         if edge_attr == '1' or (source and target):
             edge_style = detect_edge_style(style)
+            arrow_at_end = has_arrow(style, 'end')
+            arrow_at_start = has_arrow(style, 'start')
             edges.append(Edge(
                 source=source or '',
                 target=target or '',
                 label=label,
-                style=edge_style
+                style=edge_style,
+                arrow_start=arrow_at_start,
+                arrow_end=arrow_at_end,
             ))
         # Check if this is a group/container
         elif shape == 'group' or cell_id in parent_children:
@@ -392,13 +420,18 @@ def extract_graph_elements(root: ET.Element) -> Tuple[List[Node], List[Edge], Di
                 groups[cell_id] = Group(id=cell_id, label=label, children=[])
                 continue
             
+            fill_color, stroke_color, font_color = extract_colors(style)
+            
             nodes.append(Node(
                 id=cell_id,
                 label=label if label else f"Node_{cell_id[-4:]}",
                 shape=shape,
                 parent=parent_id if parent_id not in ['0', '1'] else None,
                 x=x,
-                y=y
+                y=y,
+                fill_color=fill_color,
+                stroke_color=stroke_color,
+                font_color=font_color,
             ))
     
     # Assign children to groups
@@ -450,15 +483,44 @@ def format_node_mermaid(node: Node, node_id: str) -> str:
 
 
 def format_edge_mermaid(edge: Edge, source_id: str, target_id: str) -> str:
-    """Format an edge for Mermaid syntax."""
-    # Arrow style based on edge style
-    arrow_map = {
-        'solid': '-->',
-        'dashed': '-.->',
-        'dotted': '-..->',
-        'thick': '==>'
-    }
-    arrow = arrow_map.get(edge.style, '-->')
+    """
+    Format an edge for Mermaid syntax with correct arrow direction and line style.
+    
+    Mermaid arrow combinations:
+      Solid:   -->  (forward)  <-->  (bidirectional)  ---  (no arrow)  <--  (reverse)
+      Dashed:  -.-> (forward)  <-.-> (bidirectional)  -.-  (no arrow)  <-.- (reverse)
+      Thick:   ==>  (forward)  <==> (bidirectional)   ===  (no arrow)  <==  (reverse)
+    """
+    has_start = edge.arrow_start
+    has_end = edge.arrow_end
+
+    if edge.style == 'dashed' or edge.style == 'dotted':
+        if has_start and has_end:
+            arrow = '<-.->'
+        elif has_start and not has_end:
+            arrow = '<-.-'
+        elif has_end:
+            arrow = '-.->'
+        else:
+            arrow = '-.-'
+    elif edge.style == 'thick':
+        if has_start and has_end:
+            arrow = '<==>'
+        elif has_start and not has_end:
+            arrow = '<=='
+        elif has_end:
+            arrow = '==>'
+        else:
+            arrow = '==='
+    else:  # solid (default)
+        if has_start and has_end:
+            arrow = '<-->'
+        elif has_start and not has_end:
+            arrow = '<--'
+        elif has_end:
+            arrow = '-->'
+        else:
+            arrow = '---'
     
     if edge.label:
         return f'    {source_id} {arrow}|"{edge.label}"| {target_id}'
@@ -516,6 +578,24 @@ def generate_mermaid(nodes: List[Node], edges: List[Edge], groups: Dict[str, Gro
             continue
         
         lines.append(format_edge_mermaid(edge, source_id, target_id))
+    
+    # Output style directives for colored nodes
+    # This preserves the original diagram's color semantics
+    for node in nodes:
+        node_id = id_map.get(node.id)
+        if not node_id:
+            continue
+        
+        style_parts = []
+        if node.fill_color:
+            style_parts.append(f"fill:{node.fill_color}")
+        if node.stroke_color:
+            style_parts.append(f"stroke:{node.stroke_color}")
+        if node.font_color:
+            style_parts.append(f"color:{node.font_color}")
+        
+        if style_parts:
+            lines.append(f'    style {node_id} {",".join(style_parts)}')
     
     lines.append("```")
     return '\n'.join(lines)

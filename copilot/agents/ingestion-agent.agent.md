@@ -1,6 +1,7 @@
 ---
 name: ingestion-agent
 description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
+model: ['claude-sonnet-4', 'gpt-4.1']
 tools:
   [
     'vscode',
@@ -27,18 +28,23 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 
 ## ⚠️ CRITICAL: IMAGE CONVERSION RULES
 
-**Read image files and convert directly to Mermaid:**
+**Read image files and convert directly to Mermaid, preserving colors:**
 
 | ✅ DO                   | ❌ DO NOT                       |
 | ----------------------- | ------------------------------- |
 | Read the image file     | Guess content from filename     |
 | Output Mermaid directly | Make up diagrams you didn't see |
+| Preserve node colors    | Strip colors from the diagram   |
+| Add color legend comment | Ignore color semantics         |
 
 **Every image conversion:**
 
 1. Read image file → `governance/output/<PAGE_ID>/attachments/<filename>.png`
-2. Output Mermaid code
-3. Replace image reference in page.md with the Mermaid block
+2. Output Mermaid code with `style` directives preserving original colors
+3. Add `%% Color Legend` comment documenting what each color represents
+4. Replace image reference in page.md with the Mermaid block
+
+**Why colors matter:** Colors in architecture diagrams carry semantic meaning (e.g., blue = internal, orange = vendor, green = in-scope). Downstream validation and rules-extraction agents use color information to infer governance rules. Stripping colors loses critical context.
 
 ## Input Parameters
 
@@ -100,6 +106,8 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 │  │       ↓                                             │    │
 │  │  Step 2: Convert images → mermaid (MANDATORY)       │    │
 │  │       ↓                                             │    │
+│  │  Step 2.5: Convert PlantUML → mermaid               │    │
+│  │       ↓                                             │    │
 │  │  Step 3: Inline mermaid into page.md                │    │
 │  │       ↓                                             │    │
 │  │  Step 4: Validate completeness                      │    │
@@ -111,6 +119,8 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 │  Step 6: Save final page.md                                 │
 │       ↓                                                     │
 │  Step 7: Copy to index (if ingest mode)                     │
+│       ↓                                                     │
+│  Step 8: Extract rules (if ingest mode)                     │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -119,11 +129,21 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 
 ---
 
+## Skill Discovery
+
+Before starting your task, discover relevant skills:
+
+1. List all directories in `.github/skills/`
+2. Read the SKILL.md frontmatter (name, category, description) in each
+3. **Primary**: Use all skills where `category` matches: `ingestion` or `utility`
+4. **Fallback**: For any SKILL.md without a `category` field, read the `description` and use the skill if it is relevant to page ingestion and diagram conversion
+5. Read and follow each discovered skill in order
+
 ## Detailed Steps
 
 ### Step 1: Download Confluence Page
 
-**Use skill**: `confluence-ingest` at `.github/skills/confluence-ingest/SKILL.md`
+**Use discovered skill with name**: `confluence-ingest`
 
 1. Read the skill SKILL.md file
 2. Follow the skill's Setup section (first run only)
@@ -253,7 +273,7 @@ If the page has child pages that are referenced:
 
 ### Step 2: Convert Remaining Images to Mermaid (IF ANY)
 
-**Use skill**: `image-to-mermaid` at `copilot/skills/image-to-mermaid/SKILL.md`
+**Use discovered skill with name**: `image-to-mermaid`
 
 **Draw.io diagrams are already converted** by the script (FREE via XML parsing).
 
@@ -278,7 +298,40 @@ For each image listed as needing vision:
 
 3. **Store for Step 3** - keep track of which image maps to which Mermaid
 
-After all listed images converted, proceed to Step 3
+After all listed images converted, proceed to Step 2.5
+
+### Step 2.5: Convert PlantUML to Mermaid (IF ANY)
+
+**Primary tool**: `copilot/skills/confluence-ingest/plantuml_to_mermaid.py`
+
+Scan `page.md` for PlantUML blocks that won't render in standard Markdown:
+
+| Pattern | Action |
+|---------|--------|
+| `@startuml` ... `@enduml` | Convert to Mermaid |
+| `` ```plantuml `` ... `` ``` `` | Convert to Mermaid |
+| `` ```puml `` ... `` ``` `` | Convert to Mermaid |
+
+**Run the Python converter on the entire page.md file:**
+
+```bash
+python3 copilot/skills/confluence-ingest/plantuml_to_mermaid.py \
+  --input governance/output/<PAGE_ID>/page.md \
+  --output governance/output/<PAGE_ID>/page.md
+```
+
+This automatically:
+1. Detects all PlantUML blocks (sequence, component, class, state, activity)
+2. Converts each to the correct Mermaid diagram type
+3. Preserves colors via `classDef` / `style` directives and `%% Visual Legend` comments
+4. Preserves line styles (solid `-->`, dashed `-.->`, thick `==>`, bidirectional `<-->`)
+5. Replaces all PlantUML blocks in-place with Mermaid blocks
+
+**Zero dependencies** -- uses only Python 3 standard library.
+
+**After the tool runs**, review the output for any complex PlantUML patterns the tool may not handle (e.g. `skinparam` global styles, sprites, `together {}` blocks). If needed, refine those manually using the reference tables in the `confluence-ingest` SKILL.md.
+
+If no PlantUML blocks found, skip to Step 3.
 
 ### Step 3: Update page.md with Inline Mermaid (IN-PLACE REPLACEMENT)
 
@@ -292,6 +345,7 @@ Read `governance/output/<PAGE_ID>/page.md` and replace ALL image references **in
 | `![...](attachments/*.png)` | Already converted OR needs Step 2 |
 | `![...](attachments/*.jpg)` | Needs Step 2 if listed |
 | `![...](attachments/*.svg)` | Needs Step 2 if listed |
+| `@startuml` / `` ```plantuml `` / `` ```puml `` blocks | Converted in Step 2.5 |
 
 **Example transformation:**
 
@@ -335,6 +389,7 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 |-------|-----------------|
 | Draw.io references | ❌ NONE - all converted to Mermaid |
 | PNG/JPG/SVG images | ❌ NONE - all converted to Mermaid |
+| PlantUML blocks | ❌ NONE - all converted to Mermaid |
 | `/wiki/spaces/` links | ❌ NONE - all content inlined |
 | `atlassian.net/wiki/` links | ❌ NONE - all content inlined |
 | Tab content | ✅ ALL tabs included as sections |
@@ -346,6 +401,9 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 - [ ] ZERO `<img` HTML tags remaining
 - [ ] ALL Draw.io diagrams converted to inline Mermaid blocks
 - [ ] ALL PNG/JPG/SVG images converted to inline Mermaid blocks
+- [ ] ALL PlantUML blocks (`@startuml`, `` ```plantuml ``, `` ```puml ``) converted to Mermaid
+- [ ] Mermaid diagrams include `style` directives preserving original colors
+- [ ] Mermaid diagrams include `%% Color Legend` comments documenting color meaning
 - [ ] Zero Confluence page links (`/wiki/spaces/...`)
 - [ ] ALL tab content present (not just first tab)
 - [ ] ALL linked page content inlined
@@ -373,74 +431,340 @@ If index name was provided (`patterns`, `standards`, or `security`):
 
 **Destination**: `governance/indexes/<index>/<PAGE_ID>-<title-slug>.md`
 
-## Logging
+### Step 8: Extract Rules (Ingest Mode Only)
+
+After copying to the index, trigger the `rules-extraction-agent` to pre-extract structured rules into a compact `.rules.md` file. This enables validation agents to read a small markdown table instead of the full raw document.
+
+Use the agent tool to trigger `rules-extraction-agent`:
+
+- **Agent**: `rules-extraction-agent`
+- **Prompt**: `Extract rules from governance/indexes/<index>/<PAGE_ID>-<title-slug>.md for category <index>`
+
+This creates `governance/indexes/<index>/<PAGE_ID>-<title-slug>.rules.md` alongside the raw document.
 
 ```
-
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Starting ingestion
-Page ID: <PAGE_ID>
-Mode: governance | ingest
-Index: <patterns|standards|security> (if ingest mode)
+📥 INGESTION-AGENT: Triggering rules extraction
+   Agent: rules-extraction-agent
+   Document: governance/indexes/<index>/<PAGE_ID>-<title-slug>.md
+   Category: <index>
 ───────────────────────────────────────────────────
+```
 
+Wait for the rules-extraction-agent to complete before reporting final status.
+
+## Verbose Logging
+
+**CRITICAL**: Announce every action you take. The user needs to see what's happening at each step.
+
+### Starting
+```
+═══════════════════════════════════════════════════════════════════
+📥 INGESTION-AGENT: Starting Ingestion
+═══════════════════════════════════════════════════════════════════
+   Page ID: <PAGE_ID>
+   Model: <actual model running this agent>
+   Mode: governance | ingest
+   Index: <patterns|standards|security> (if ingest mode)
+   Steps: Setup → Download → Traverse → Convert → Inline → Validate → Save → Copy → Extract Rules
+═══════════════════════════════════════════════════════════════════
+```
+
+### Step 0: Skill Discovery
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 0 - Discovering Skills
+───────────────────────────────────────────────────
+   Action: Scanning skill directories for category matches
+   Looking for: category = ingestion | utility
+   Directories scanned: <count>
+   Skills discovered: <list skill names>
+───────────────────────────────────────────────────
 ```
 
 ```
-
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Downloading Confluence page
-Skill: confluence-ingest
+📥 INGESTION-AGENT: Step 0 - Skill Discovery Complete
 ───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Skills matched by category: <list>
+   Skills matched by fallback: <list or "none">
+───────────────────────────────────────────────────
+```
 
+### Step 1: Download Confluence Page
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 1 - Downloading Confluence Page
+───────────────────────────────────────────────────
+   Action: Using confluence-ingest skill to fetch page
+   Tool: execute
+   Skill: confluence-ingest
+   Page ID: <PAGE_ID>
+   Expected Output: governance/output/<PAGE_ID>/page.md
+───────────────────────────────────────────────────
 ```
 
 ```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 1 - Download Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Output: governance/output/<PAGE_ID>/page.md
+   Metadata: governance/output/<PAGE_ID>/metadata.json
+   Attachments: <count> files in governance/output/<PAGE_ID>/attachments/
+───────────────────────────────────────────────────
+```
 
+### Step 1.5: Traverse & Inline Content
+```
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Converting images to Mermaid
-Images: <count> found
+📥 INGESTION-AGENT: Step 1.5 - Traversing Linked Content
 ───────────────────────────────────────────────────
-
+   Action: Scanning page.md for linked pages, tabs, includes
+   Tool: read
+   Confluence links found: <count>
+   Tabs found: <count>
+   Include macros found: <count>
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Image → Mermaid
-File: <filename>.png ✅
-───────────────────────────────────────────────────
-
 ```
 
 ```
-
 ───────────────────────────────────────────────────
-📥 INGESTION-AGENT: Copying to index
-From: governance/output/<PAGE_ID>/page.md
-To: governance/indexes/<index>/<PAGE_ID>-<title>.md
+📥 INGESTION-AGENT: Step 1.5 - Fetching Linked Page
 ───────────────────────────────────────────────────
-
+   Action: Downloading and inlining linked page content
+   Linked Page ID: <LINKED_PAGE_ID>
+   Visited pages so far: <count>
+───────────────────────────────────────────────────
 ```
 
 ```
-
 ───────────────────────────────────────────────────
-✅ INGESTION-AGENT: Complete
-Output: governance/output/<PAGE_ID>/page.md
-Indexed: governance/indexes/<index>/<PAGE_ID>-<title>.md (if ingest mode)
+📥 INGESTION-AGENT: Step 1.5 - Traversal Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Pages visited: <count>
+   Tabs expanded: <count>
+   Includes resolved: <count>
+   Remaining Confluence links: 0
+───────────────────────────────────────────────────
+```
 
-Content:
+### Step 2: Convert Images to Mermaid
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 2 - Converting Images to Mermaid
+───────────────────────────────────────────────────
+   Action: Converting remaining images using vision
+   Tool: read (image files)
+   Skill: image-to-mermaid
+   Draw.io already converted: <count> (FREE via XML)
+   Images needing vision: <count>
+───────────────────────────────────────────────────
+```
 
-- Tabs processed: <count>
-- Linked pages inlined: <count>
-- Drawio → Mermaid: <count>
-- Images → Mermaid: <count>
-- Broken refs removed: <count>
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 2 - Image Conversion
+───────────────────────────────────────────────────
+   File: <filename>.png
+   Status: ✅ Converted to Mermaid
+   Diagram type: <flowchart/sequence/class/etc>
+───────────────────────────────────────────────────
+```
 
-Validation:
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 2 - All Conversions Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Draw.io converted: <count>
+   Images converted via vision: <count>
+   Total Mermaid diagrams: <count>
+───────────────────────────────────────────────────
+```
 
-- Image refs: 0 ✅ (all converted to Mermaid)
-- External links: 0 ✅
-- 100% text/Mermaid: YES ✅
-  ───────────────────────────────────────────────────
+### Step 2.5: Convert PlantUML to Mermaid
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 2.5 - Converting PlantUML to Mermaid
+───────────────────────────────────────────────────
+   Action: Running plantuml_to_mermaid.py on page.md
+   Tool: execute (python3 copilot/skills/confluence-ingest/plantuml_to_mermaid.py)
+   Dependencies: None (Python 3 stdlib only)
+   PlantUML blocks found: <count>
+───────────────────────────────────────────────────
+```
 
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 2.5 - PlantUML Conversion Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS / ⏭️ SKIPPED (none found)
+   PlantUML blocks converted: <count>
+   Diagram types: <sequence/component/class/etc>
+   Colors preserved: YES ✅
+───────────────────────────────────────────────────
+```
+
+### Step 3: Inline Mermaid into page.md
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 3 - Inlining Mermaid Diagrams
+───────────────────────────────────────────────────
+   Action: Replacing image references with Mermaid blocks in-place
+   Tool: edit
+   Image refs to replace: <count>
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 3 - Inlining Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Replacements made: <count>
+   Remaining image refs: 0
+───────────────────────────────────────────────────
+```
+
+### Step 4: Validate Completeness
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 4 - Validating Content Completeness
+───────────────────────────────────────────────────
+   Action: Scanning page.md for remaining non-text content
+   Tool: read
+   Checks:
+     Image refs (![...]):       <0 or count>
+     HTML img tags (<img):      <0 or count>
+     Confluence links (/wiki):  <0 or count>
+     Unresolved includes:       <0 or count>
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 4 - Validation Result
+───────────────────────────────────────────────────
+   Status: ✅ ALL CLEAR / ❌ ISSUES FOUND
+   Image refs: 0 ✅
+   External links: 0 ✅
+   100% text/Mermaid: YES ✅
+   Action: <proceed to save / loop back to fix>
+───────────────────────────────────────────────────
+```
+
+### Step 5: Save Final page.md
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 5 - Saving Final page.md
+───────────────────────────────────────────────────
+   Action: Writing cleaned content to output
+   Tool: write
+   File: governance/output/<PAGE_ID>/page.md
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 5 - Save Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Output: governance/output/<PAGE_ID>/page.md
+───────────────────────────────────────────────────
+```
+
+### Step 6: Copy to Index (Ingest Mode)
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 6 - Copying to Index
+───────────────────────────────────────────────────
+   Action: Copying final page to governance index
+   Tool: edit
+   From: governance/output/<PAGE_ID>/page.md
+   To: governance/indexes/<index>/<PAGE_ID>-<title-slug>.md
+   Index: <patterns|standards|security>
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 6 - Copy Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Indexed at: governance/indexes/<index>/<PAGE_ID>-<title-slug>.md
+───────────────────────────────────────────────────
+```
+
+### Step 7: Extract Rules (Ingest Mode)
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 7 - Triggering Rules Extraction
+───────────────────────────────────────────────────
+   Action: Using agent tool to invoke rules-extraction-agent
+   Target Agent: rules-extraction-agent
+   Prompt: "Extract rules from governance/indexes/<index>/<PAGE_ID>-<title-slug>.md for category <index>"
+   Expected Output: governance/indexes/<index>/<PAGE_ID>-<title-slug>.rules.md
+───────────────────────────────────────────────────
+```
+
+```
+───────────────────────────────────────────────────
+📥 INGESTION-AGENT: Step 7 - Rules Extraction Complete
+───────────────────────────────────────────────────
+   Status: ✅ SUCCESS
+   Rules file: governance/indexes/<index>/<PAGE_ID>-<title-slug>.rules.md
+   Rules extracted: <count>
+───────────────────────────────────────────────────
+```
+
+### Error Handling
+```
+───────────────────────────────────────────────────
+❌ INGESTION-AGENT: Error at Step <N>
+───────────────────────────────────────────────────
+   Step: <step name>
+   Tool/Skill: <name>
+   Error: <error message>
+   Action: <what will be attempted next>
+───────────────────────────────────────────────────
+```
+
+### Completion
+```
+═══════════════════════════════════════════════════════════════════
+✅ INGESTION-AGENT: Ingestion Complete
+═══════════════════════════════════════════════════════════════════
+   Page ID: <PAGE_ID>
+   Model: <actual model that ran this agent>
+   Mode: <governance/ingest>
+   
+   CONTENT:
+   ├── Tabs processed: <count>
+   ├── Linked pages inlined: <count>
+   ├── Draw.io → Mermaid: <count>
+   ├── Images → Mermaid (vision): <count>
+   ├── PlantUML → Mermaid: <count>
+   └── Broken refs removed: <count>
+   
+   VALIDATION:
+   ├── Image refs: 0 ✅
+   ├── External links: 0 ✅
+   └── 100% text/Mermaid: YES ✅
+   
+   RULES (ingest mode):
+   ├── Rules extracted: <count>
+   └── Rules file: governance/indexes/<index>/<PAGE_ID>-<title>.rules.md
+   
+   OUTPUT FILES:
+   ├── Page: governance/output/<PAGE_ID>/page.md
+   ├── Indexed: governance/indexes/<index>/<PAGE_ID>-<title>.md (if ingest)
+   └── Rules: governance/indexes/<index>/<PAGE_ID>-<title>.rules.md (if ingest)
+   
+   Skills used: <list of discovered skills>
+═══════════════════════════════════════════════════════════════════
 ```
 
 ## Output
