@@ -75,13 +75,15 @@ Use the `merge-reports` skill. Process reports **one at a time** to avoid loadin
 4. Read the compact extract file → calculate weighted score `(P×0.30 + S×0.30 + Sec×0.40)` → write `<PAGE_ID>-governance-report.md`
 5. Delete the extract file
 
-### Step 6: Generate HTML Dashboard
+### Step 6: Generate HTML Dashboard (Incremental)
 
-Use the `markdown-to-html` skill.
+Use the `markdown-to-html` skill. Build the HTML file in phases -- one source report at a time:
 
-1. Read the merged report
-2. Generate HTML dashboard
-3. Write to `governance/output/<PAGE_ID>-governance-report.html`
+1. Read governance report (compact) → write HTML shell with scores, summary, critical issues
+2. Read patterns report → extract findings table → append as `<details>` block → release
+3. Read standards report → extract findings table → append as `<details>` block → release
+4. Read security report → extract findings table → append as `<details>` block → release
+5. Close HTML tags → `governance/output/<PAGE_ID>-governance-report.html`
 
 ## Verbose Logging
 
