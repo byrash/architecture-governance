@@ -65,13 +65,15 @@ Wait for ingestion to complete. Output: `governance/output/<PAGE_ID>/page.md`
 
 Wait for ALL three to complete before proceeding to Step 5 (merge).
 
-### Step 5: Merge Reports
+### Step 5: Merge Reports (Incremental)
 
-Use the `merge-reports` skill.
+Use the `merge-reports` skill. Process reports **one at a time** to avoid loading all three simultaneously:
 
-1. Read all three reports from `governance/output/`
-2. Calculate weighted score: `(Patterns × 0.30) + (Standards × 0.30) + (Security × 0.40)`
-3. Write merged report to `governance/output/<PAGE_ID>-governance-report.md`
+1. Read patterns report → extract score, counts, critical issues → write to extract file → release
+2. Read standards report → extract and append → release
+3. Read security report → extract and append → release
+4. Read the compact extract file → calculate weighted score `(P×0.30 + S×0.30 + Sec×0.40)` → write `<PAGE_ID>-governance-report.md`
+5. Delete the extract file
 
 ### Step 6: Generate HTML Dashboard
 

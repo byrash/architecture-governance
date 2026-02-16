@@ -26,27 +26,43 @@ This agent uses the following skills (discovered automatically by Copilot from `
 - **index-query** -- read rules from governance index folders
 - **verbose-logging** -- step progress announcement templates
 
-## Process
+## Process (Incremental Report Building)
+
+Build the report on disk as you go -- never accumulate all findings in context.
+
+### Phase 1: Setup
 
 1. **Read skills** listed in the Skills Used section above
-2. **Read the architecture document** from the provided path
+2. **Read the architecture document** (`page.md`) -- stays in context throughout
 3. **Load rules** from `governance/indexes/patterns/` using the `index-query` skill
-4. **Check for incremental mode**: estimate `(chars in rules + chars in page.md) / 4`. If > 80K tokens, use incremental validation (see below). Otherwise continue with single-pass.
-5. **Validate** the document against all patterns found in the index
-6. **Run any additional discovered skills** against the architecture document
-7. **Write the validation report** to same directory as input
+4. **Write report shell** to `governance/output/<PAGE_ID>-patterns-report.md`:
+   - Header with placeholders: `**Score**: _TBD_`, `**Status**: _TBD_`
+   - Skills Used table
+   - "Patterns Checked" table header row (no data rows yet)
 
-### Incremental Validation (for large rule sets)
+### Phase 2: Validate and Append (per batch)
 
-If the combined rules + document exceeds 80K tokens:
+Process rules in **batches of 50** (or all at once if total rules + page.md < 80K tokens):
 
-1. **page.md** is already in context (read in step 2)
-2. Read rules from `_all.rules.md` in **batches of 50 rules** (using line offset/limit)
-3. For each batch: validate each rule against page.md, citing Rule ID + evidence
-4. Append findings to `governance/output/<PAGE_ID>-patterns-findings-partial.md`
+1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
+2. Validate each rule against page.md, applying grounding requirements
+3. **Append finding rows** directly to the Patterns Checked table in the report file on disk
+4. Release the batch from context
 5. Repeat until ALL rules processed
-6. Read the partial findings file, calculate score, write the final report
-7. Delete the partial findings file
+
+For anti-patterns: append to the Anti-Patterns Check table in the same way.
+
+### Phase 3: External Skills
+
+Run any additional Copilot-discovered skills against the document. Append their findings to the Discovered Skill Findings section of the report file.
+
+### Phase 4: Finalize
+
+1. **Scan the report file** for status values only -- count PASS, ERROR, WARN rows (do NOT re-read evidence text)
+2. Calculate score: `100 - (errors × weight) - (warnings × weight)`
+3. **Update the header** placeholders: replace `_TBD_` score and status with actual values
+4. **Append** the Errors summary, Recommendations, and Completion sections
+5. Announce completion
 
 ## Grounding Requirements (CRITICAL)
 

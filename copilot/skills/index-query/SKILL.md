@@ -83,24 +83,27 @@ When `_all.rules.md` grows large, loading it entirely alongside the architecture
 ### Incremental mode steps
 
 1. **Read page.md** once (stays in working memory throughout validation)
-2. **Count total rules** in `_all.rules.md` by counting table rows (read just the header area to get the count without loading all content)
-3. **Process rules in batches of 50**:
+2. **Write report shell** to the output path with placeholder header and table headers (no data rows yet)
+3. **Count total rules** in `_all.rules.md` by counting table rows (read just the header area to get the count without loading all content)
+4. **Process rules in batches of 50**:
    a. Read rules R-001 through R-050 from `_all.rules.md` (using line offset/limit to read only those rows)
-   b. Pass the batch to the validation logic -- validate each rule against page.md, citing Rule ID + evidence
-   c. Append findings for this batch to a working file: `governance/output/<PAGE_ID>-<agent>-findings-partial.md`
-   d. Read next batch: R-051 through R-100
-   e. Repeat until ALL rules have been processed
-4. **Compile final report**:
-   a. Read the accumulated findings from the partial file
-   b. Calculate score across ALL findings (total PASS / ERROR / WARN)
-   c. Write the final report in the standard format
-   d. Delete the partial findings file (cleanup)
+   b. Validate each rule against page.md, citing Rule ID + evidence
+   c. **Append finding rows directly to the report file** on disk (not a separate partial file)
+   d. Release the batch from context
+   e. Read next batch: R-051 through R-100
+   f. Repeat until ALL rules have been processed
+5. **Finalize report**:
+   a. Scan the report file for status column values -- count PASS / ERROR / WARN rows
+   b. Calculate score
+   c. Update the header placeholders with final score and status
+   d. Append remaining sections (errors summary, recommendations)
 
 ### Key principles
 
 - page.md is read ONCE and kept in context
 - Rules are read in batches -- each batch fits alongside page.md
-- Findings accumulate in a working file on disk, not in context
+- Finding rows are appended directly to the report file on disk -- no separate partial file needed
+- The finalize step only scans for status counts, not full evidence re-read
 - ALL rules are checked -- nothing is skipped or deprioritized
 - The batch size (50) can be adjusted: use smaller batches for very large documents
 

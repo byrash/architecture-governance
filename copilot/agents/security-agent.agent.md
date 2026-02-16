@@ -26,30 +26,47 @@ This agent uses the following skills (discovered automatically by Copilot from `
 - **index-query** -- read rules from governance index folders
 - **verbose-logging** -- step progress announcement templates
 
-## Process
+## Process (Incremental Report Building)
+
+Build the report on disk as you go -- never accumulate all findings in context.
+
+### Phase 1: Setup
 
 1. **Read skills** listed in the Skills Used section above
-2. **Read the architecture document** from the provided path
+2. **Read the architecture document** (`page.md`) -- stays in context throughout
 3. **Load rules** from `governance/indexes/security/` using the `index-query` skill
-4. **Check for incremental mode**: estimate `(chars in rules + chars in page.md) / 4`. If > 80K tokens, use incremental validation (see below). Otherwise continue with single-pass.
-5. **Validate** the document against all security controls found in the index
-6. **Check for vulnerabilities** (hardcoded credentials, etc.)
-7. **Run any additional discovered skills** against the architecture document
-8. **Collate findings** from all discovered skills into the report format (see Collating Discovered Skill Output below)
-9. **Write the validation report** to same directory as input
+4. **Write report shell** to `governance/output/<PAGE_ID>-security-report.md`:
+   - Header with placeholders: `**Score**: _TBD_`, `**Status**: _TBD_`, `**Risk Level**: _TBD_`
+   - Skills Used table
+   - "Security Controls Checked" table header row (no data rows yet)
+   - "Vulnerability Scan" table header row (no data rows yet)
 
-### Incremental Validation (for large rule sets)
+### Phase 2: Validate and Append (per batch)
 
-If the combined rules + document exceeds 80K tokens:
+Process rules in **batches of 50** (or all at once if total rules + page.md < 80K tokens):
 
-1. **page.md** is already in context (read in step 2)
-2. Read rules from `_all.rules.md` in **batches of 50 rules** (using line offset/limit)
-3. For each batch: validate each rule against page.md, citing Rule ID + evidence
-4. Append findings to `governance/output/<PAGE_ID>-security-findings-partial.md`
+1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
+2. Validate each rule against page.md, applying grounding requirements
+3. **Append finding rows** directly to the Security Controls Checked table in the report file on disk
+4. Release the batch from context
 5. Repeat until ALL rules processed
-6. Read the partial findings file, then proceed with vulnerability scan (step 6) and skill collation (steps 7-8)
-7. Calculate score across all findings, write the final report
-8. Delete the partial findings file
+
+### Phase 3: Vulnerability Scan
+
+Scan page.md for hardcoded credentials, sensitive data exposure, etc. Append results to the Vulnerability Scan table in the report file.
+
+### Phase 4: External Skills
+
+Run any additional Copilot-discovered skills against the document. Append their findings to the Discovered Skill Findings section of the report file. Collate using the rules in the Collating Discovered Skill Output section below.
+
+### Phase 5: Finalize
+
+1. **Scan the report file** for status values only -- count PASS, ERROR, WARN, CRITICAL rows (do NOT re-read evidence text)
+2. Calculate score: `100 - (errors × weight) - (warnings × weight)`
+3. Determine risk level: CRITICAL if any critical control missing or vulnerability found
+4. **Update the header** placeholders: replace `_TBD_` score, status, and risk level with actual values
+5. **Append** the Errors summary, Recommendations, and Completion sections
+6. Announce completion
 
 ## Grounding Requirements (CRITICAL)
 
