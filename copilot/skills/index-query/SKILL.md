@@ -70,6 +70,40 @@ governance/indexes/patterns/
 
 Combined rules content from the index, used by validation agents to check architecture documents.
 
+## Incremental Reading Mode (for large rule sets)
+
+When `_all.rules.md` grows large, loading it entirely alongside the architecture document may overflow the context window. Use incremental reading to ensure ALL rules are checked.
+
+### When to use incremental mode
+
+1. Estimate combined context: `(chars in _all.rules.md + chars in page.md) / 4`
+2. If combined estimate > **80K tokens** → use incremental mode
+3. If combined estimate <= 80K tokens → use standard single-pass mode (no change)
+
+### Incremental mode steps
+
+1. **Read page.md** once (stays in working memory throughout validation)
+2. **Count total rules** in `_all.rules.md` by counting table rows (read just the header area to get the count without loading all content)
+3. **Process rules in batches of 50**:
+   a. Read rules R-001 through R-050 from `_all.rules.md` (using line offset/limit to read only those rows)
+   b. Pass the batch to the validation logic -- validate each rule against page.md, citing Rule ID + evidence
+   c. Append findings for this batch to a working file: `governance/output/<PAGE_ID>-<agent>-findings-partial.md`
+   d. Read next batch: R-051 through R-100
+   e. Repeat until ALL rules have been processed
+4. **Compile final report**:
+   a. Read the accumulated findings from the partial file
+   b. Calculate score across ALL findings (total PASS / ERROR / WARN)
+   c. Write the final report in the standard format
+   d. Delete the partial findings file (cleanup)
+
+### Key principles
+
+- page.md is read ONCE and kept in context
+- Rules are read in batches -- each batch fits alongside page.md
+- Findings accumulate in a working file on disk, not in context
+- ALL rules are checked -- nothing is skipped or deprioritized
+- The batch size (50) can be adjusted: use smaller batches for very large documents
+
 ## Important
 
 - Always prefer `.rules.md` over raw `.md` when both exist for the same document

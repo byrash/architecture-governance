@@ -126,7 +126,24 @@ Extract these rules:
 | ID | Rule | Sev | Req | Keywords | Condition |
 |----|------|-----|-----|----------|-----------|
 | R-001 | <rule name> | C/H/M/L | Y/N | <comma-separated keywords> | <one-line condition> |
+
+## Probe Questions
+
+These yes/no questions help validation agents check rules systematically. Generate one question per rule or group of related rules:
+
+| # | Question | Rule IDs |
+|---|----------|----------|
+| 1 | <yes/no question that checks whether the rule is satisfied> | R-001 |
+| 2 | <yes/no question for next rule or rule group> | R-002, R-003 |
 ```
+
+### Probe Questions Guidelines
+
+- Generate one probe question per rule, or group closely related rules into a single question
+- Questions must be answerable with YES/NO by examining the architecture document
+- Each question must reference the Rule ID(s) it validates
+- Phrase questions so that YES = rule satisfied, NO = rule violated
+- Example: Rule "External vendor isolation" → Question: "Does all external vendor traffic route through the API gateway?"
 
 ### Fingerprint
 
@@ -148,17 +165,24 @@ Rules:
 - **Keywords**: Comma-separated, lowercase, for quick matching
 - **Condition**: One-line description of what must be true
 
-## Consolidation (Batch Mode)
+## Consolidation (Incremental -- after each file)
 
-When processing multiple files, after generating per-file `.rules.md` files:
+When processing multiple files, merge into `_all.rules.md` **immediately after each per-file extraction** rather than reading all files at the end. This keeps context usage bounded as indexes grow.
 
-1. **Merge** all per-file rule tables into one unified table
-2. **Deduplicate** rules with overlapping keywords AND similar conditions:
-   - If rule A (from file1) and rule B (from file2) share 3+ keywords AND describe the same constraint → keep the more specific one
-   - Note both sources in the `Source` column
-3. **Re-number** IDs sequentially: `R-001`, `R-002`, etc.
-4. **Sort** by severity: Critical first, then High, Medium, Low
-5. **Identify cross-document patterns**: rules that appear in 2+ source files represent widely-agreed governance principles and should be called out
+**After extracting each `<filename>.rules.md`:**
+
+1. If `_all.rules.md` does not exist → create it with this file's rules as initial content
+2. If `_all.rules.md` exists → read it, then:
+   a. **Append** new rules from this file
+   b. **Deduplicate** rules with overlapping keywords AND similar conditions:
+      - If rule A (existing) and rule B (new) share 3+ keywords AND describe the same constraint → keep the more specific one
+      - Note both sources in the `Source` column
+   c. **Re-number** IDs sequentially: `R-001`, `R-002`, etc.
+   d. **Sort** by severity: Critical first, then High, Medium, Low
+   e. **Write** updated `_all.rules.md` back to disk
+3. **Release context**: the source document can be forgotten -- its rules are now in both `<filename>.rules.md` and `_all.rules.md`
+
+**Identify cross-document patterns**: rules that appear in 2+ source files represent widely-agreed governance principles and should be called out in the Cross-Document Patterns section
 
 ### Consolidated output adds a `Source` column
 
