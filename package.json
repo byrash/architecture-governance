@@ -1,0 +1,8 @@
+{
+  "name": "architecture-governance",
+  "private": true,
+  "description": "Mermaid CLI for diagram syntax validation",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.4.0"
+  }
+}

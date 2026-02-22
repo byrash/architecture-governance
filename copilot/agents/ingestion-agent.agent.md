@@ -116,18 +116,36 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 
 This agent uses the following skills (discovered automatically by Copilot from `copilot/skills/`):
 
-- **confluence-ingest** -- download and convert Confluence pages to markdown
-- **image-to-mermaid** -- convert remaining diagram images via vision
+- **confluence-ingest** -- download and convert Confluence pages to markdown (Draw.io, SVG, Markdown/Mermaid macros, PlantUML -- all deterministic; caching; validation)
+- **image-to-mermaid** -- convert remaining diagram images via vision (LAST RESORT, with pre-extraction and retry)
 - **verbose-logging** -- step progress announcement templates
 
 ## Detailed Steps
+
+### Step 0.5: Setup (First Run Only)
+
+Ensure both Python and Node.js dependencies are installed:
+
+```bash
+# Python deps (venv should already be active)
+pip install -r requirements.txt
+
+# Node.js deps (Mermaid CLI for syntax validation)
+npm install
+
+# System dep: Tesseract OCR (for image pre-extraction)
+# macOS: brew install tesseract
+# Ubuntu: sudo apt-get install tesseract-ocr
+```
+
+If `package.json` exists at workspace root and `node_modules/` does not, run `npm install` before proceeding.
 
 ### Step 1: Download Confluence Page
 
 **Use skill**: `confluence-ingest`
 
 1. Read the skill SKILL.md file
-2. Follow the skill's Setup section (first run only)
+2. Follow the skill's Setup section (including `npm install` for Mermaid CLI)
 3. Follow the skill's Usage section to download page
 
 **Input**: `<PAGE_ID>`  
@@ -268,30 +286,57 @@ After completing content traversal (Step 1.5), check document size and log warni
 
 **Use skill**: `image-to-mermaid`
 
-**Draw.io diagrams are already converted** by the script (FREE via XML parsing).
+**Draw.io and SVG diagrams are already converted** by the script (FREE via XML parsing).
+**Markdown macros and Mermaid macros are already extracted** (deterministic).
 
-Check the script output:
-- If `"All diagrams converted - no vision needed"` → **Skip to Step 3**
-- If images are listed → Convert only those using vision
+Check the script output and `conversion-manifest.json`:
+- If `"All diagrams converted deterministically"` → **Skip to Step 3**
+- If images are listed with `"method": "vision_llm"` → Convert using vision with pre-extraction
 
 ```
-🖼️  IMAGES NEED VISION: 1 image(s) (costs $$ - no .drawio source)
-   → attachments/screenshot.png
+🖼️  IMAGES NEED VISION: 1 image(s) (non-deterministic)
+   → attachments/screenshot.png (3 OCR labels pre-extracted)
+
+   ⚠️  MANUAL REVIEW NEEDED for vision-converted diagrams
 ```
 
-For each image listed as needing vision:
+For each image listed as needing vision, follow the **pre-extract + validate + retry** protocol:
+
+#### Step 2a: Pre-Extract Context (MANDATORY)
+
+```bash
+python3 copilot/skills/confluence-ingest/preextract_diagram.py \
+  --input governance/output/<PAGE_ID>/attachments/<filename>.png \
+  --format-prompt
+```
+
+Read the `.context.json` output. It contains OCR text labels, hex colors, shape counts, and line counts.
+
+#### Step 2b: Vision Conversion with Context
 
 1. **Read the image file**
+2. **Include the pre-extracted context** in your reasoning -- use exact OCR labels, exact hex colors
+3. **Output Mermaid code** that includes ALL pre-extracted labels and uses the exact colors
 
-   ```
-   Read file: governance/output/<PAGE_ID>/attachments/<filename>.png
-   ```
+#### Step 2c: Validate and Retry (max 3 attempts)
 
-2. **Output Mermaid code** that represents the diagram
+```bash
+python3 copilot/skills/confluence-ingest/validate_mermaid.py --code "<MERMAID>" --json
+```
 
-3. **Store for Step 3** - keep track of which image maps to which Mermaid
+- If `valid: true` → Store for Step 3
+- If `valid: false` → Read the error, fix the Mermaid, re-validate
+- **Maximum 3 attempts** per image
+- If still invalid after 3 attempts → keep the original `![image](path)` reference and log:
+  ```
+  ⚠️ CONVERSION_FAILED: <filename>.png (3 attempts, last error: <error>)
+  ```
 
-After all listed images converted, proceed to Step 2.5
+#### Step 2d: Cache Result
+
+After successful validation, the result is automatically cached by SHA256 hash when the agent writes it to page.md and re-runs the ingestion script.
+
+After all listed images processed, proceed to Step 2.5
 
 ### Step 2.5: Convert PlantUML to Mermaid (IF ANY)
 
@@ -390,11 +435,15 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 | Broken links | ❌ NONE remaining |
 
 **VALIDATION CHECKLIST** (all must be true):
-- [ ] ZERO `![` image references remaining (all converted to Mermaid)
+- [ ] ZERO `![` image references remaining (all converted to Mermaid) -- OR flagged as CONVERSION_FAILED
 - [ ] ZERO `<img` HTML tags remaining
 - [ ] ALL Draw.io diagrams converted to inline Mermaid blocks
-- [ ] ALL PNG/JPG/SVG images converted to inline Mermaid blocks
+- [ ] ALL SVG diagrams converted to inline Mermaid blocks (via svg_to_mermaid.py)
+- [ ] ALL PNG/JPG images converted to inline Mermaid blocks (via vision with pre-extraction)
 - [ ] ALL PlantUML blocks (`@startuml`, `` ```plantuml ``, `` ```puml ``) converted to Mermaid
+- [ ] ALL Mermaid macros from Confluence preserved as-is
+- [ ] ALL Markdown macros from Confluence extracted without lossy HTML round-trip
+- [ ] ALL Mermaid blocks pass `validate_mermaid.py` syntax check
 - [ ] Mermaid diagrams include `style` directives preserving original colors
 - [ ] Mermaid diagrams include `%% Color Legend` comments documenting color meaning
 - [ ] Zero Confluence page links (`/wiki/spaces/...`)
@@ -402,6 +451,8 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 - [ ] ALL linked page content inlined
 - [ ] Document structure matches original Confluence page exactly
 - [ ] Content is **100% text/Mermaid** - validation agents can read everything
+- [ ] `conversion-manifest.json` generated with per-diagram audit data
+- [ ] Vision-converted diagrams flagged with `"manual_review": true`
 - [ ] No prompt injection patterns detected (see Content Sanitization below)
 
 ### Content Sanitization
@@ -478,8 +529,12 @@ Wait for the rules-extraction-agent to complete before reporting final status.
 | ALL tabs included | ✅ Every tab as a section, not just first tab |
 | ALL linked pages inlined | ✅ No external Confluence links |
 | ALL embedded content | ✅ Includes/excerpts fully expanded |
-| Draw.io diagrams | ✅ Converted to inline Mermaid (automatic) |
-| Images (PNG/JPG/SVG) | ✅ Converted to inline Mermaid (via vision) |
+| Draw.io diagrams | ✅ Converted to inline Mermaid (deterministic XML parsing) |
+| SVG diagrams | ✅ Converted to inline Mermaid (deterministic XML parsing) |
+| Markdown macros | ✅ Preserved as-is (no lossy HTML round-trip) |
+| Mermaid macros | ✅ Extracted and preserved directly |
+| Images (PNG/JPG) | ✅ Converted to inline Mermaid (pre-extract + vision, flagged for manual review) |
+| Mermaid validation | ✅ All blocks validated via mmdc |
 | External dependencies | ✅ NONE - no broken links, no images |
 | Confluence links | ✅ NONE - all content inlined |
 | Validation ready | ✅ 100% text/Mermaid - models can read everything |

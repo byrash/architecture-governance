@@ -26,6 +26,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+# Node.js deps (Mermaid CLI for syntax validation)
+npm install
+
+# System dep: Tesseract OCR (for image pre-extraction)
+# macOS: brew install tesseract
+# Ubuntu: sudo apt-get install tesseract-ocr
+
 # 3. Use agents (venv auto-activates, .env auto-loads)
 
 # Ingest a Confluence page to an index
@@ -67,6 +74,18 @@ flowchart TB
     subgraph Ingestion[Ingestion Pipeline]
         IA[ingestion-agent]
         REA[rules-extraction-agent]
+        subgraph Cascade[Deterministic Conversion Cascade]
+            direction TB
+            T1["1. Draw.io XML ✅ deterministic"]
+            T2["2. SVG XML ✅ deterministic"]
+            T3["3. Mermaid macro ✅ passthrough"]
+            T4["4. Markdown macro ✅ passthrough"]
+            T5["5. Code/NoFormat ✅ passthrough"]
+            T6["6. PlantUML ✅ deterministic"]
+            T7["7. Cache (SHA256) ✅ reuse"]
+            T8["8. Vision + OCR/CV ⚠️ last resort"]
+            T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7 --> T8
+        end
     end
 
     subgraph Validation[Validation Agents - Parallel]
@@ -77,7 +96,7 @@ flowchart TB
 
     subgraph SkillsPool[Skills - Auto-Discovered by Category]
         direction LR
-        IngSkills["ingestion\nconfluence-ingest\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\nimage-to-mermaid"]
+        IngSkills["ingestion\nconfluence-ingest\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  validate_mermaid.py\n  preextract_diagram.py\nimage-to-mermaid"]
         PatSkills["patterns\npattern-validate"]
         StdSkills["standards\nstandards-validate"]
         SecSkills["security\nsecurity-validate\n+ external skills"]
@@ -104,6 +123,9 @@ flowchart TB
 
     %% Ingestion triggers rules extraction
     IA -->|"after index"| REA
+
+    %% Ingestion uses conversion cascade
+    IA --> Cascade
 
     %% Discovery: agents discover skills by category
     IA -->|discovers| IngSkills
@@ -243,10 +265,19 @@ sequenceDiagram
 
     User->>IA: Ingest page 123 to patterns
     IA->>Confluence: Download page + attachments
-    IA->>IA: Convert Draw.io → Mermaid (drawio_to_mermaid.py)
-    IA->>IA: Convert PlantUML → Mermaid (plantuml_to_mermaid.py)
-    IA->>IA: Convert images → Mermaid (vision)
-    IA->>IA: Validate 100% text/Mermaid
+
+    Note over IA: Deterministic Conversion Cascade
+    IA->>IA: 1. Draw.io XML → Mermaid (deterministic)
+    IA->>IA: 2. SVG XML → Mermaid (deterministic)
+    IA->>IA: 3. Extract Mermaid macros (passthrough)
+    IA->>IA: 4. Extract Markdown macros (passthrough)
+    IA->>IA: 5. Extract Code/NoFormat macros (passthrough)
+    IA->>IA: 6. PlantUML → Mermaid (deterministic)
+    IA->>IA: 7. Check SHA256 cache
+    IA->>IA: 8. Pre-extract OCR/CV + Vision (last resort)
+
+    Note over IA: Validate all Mermaid via mmdc
+    IA->>IA: Write conversion-manifest.json
     IA->>Index: Copy page.md to indexes/patterns/
     IA->>REA: Extract rules from indexed page
     REA->>Index: Write page.rules.md
@@ -277,9 +308,9 @@ sequenceDiagram
     Note over GA,REA: Step 1: Ingestion
     GA->>IA: Ingest page
     IA->>IA: Download from Confluence
-    IA->>IA: Convert Draw.io/PlantUML → Mermaid
-    IA->>IA: Convert images → Mermaid (vision)
-    IA->>IA: Validate 100% text
+    IA->>IA: Deterministic cascade (Draw.io/SVG/macros/PlantUML/cache)
+    IA->>IA: Vision fallback (OCR/CV pre-extract → LLM)
+    IA->>IA: Validate all Mermaid via mmdc
     IA->>REA: Extract rules from indexed page
     REA-->>IA: .rules.md written
     IA-->>GA: page.md ready (no images)
@@ -397,6 +428,7 @@ All outputs saved to `governance/output/`:
 | `<PAGE_ID>/page.md` | Clean markdown with ALL diagrams as Mermaid (100% text) |
 | `<PAGE_ID>/metadata.json` | Page metadata from Confluence |
 | `<PAGE_ID>/attachments/` | Original downloaded files |
+| `<PAGE_ID>/conversion-manifest.json` | Per-diagram conversion method, validity, determinism flag |
 | `<PAGE_ID>-patterns-report.md` | Pattern validation results |
 | `<PAGE_ID>-standards-report.md` | Standards validation results |
 | `<PAGE_ID>-security-report.md` | Security validation results |
@@ -409,6 +441,9 @@ All outputs saved to `governance/output/`:
 .github/                        # Symlinks for VS Code/IDE
 ├── agents -> ../copilot/agents
 └── skills -> ../copilot/skills
+
+package.json                    # Node.js deps (@mermaid-js/mermaid-cli)
+requirements.txt                # Python deps (atlassian-python-api, pytesseract, etc.)
 
 copilot/                        # Source files (mounted as .github/ in Docker)
 ├── agents/                     # AI agents
@@ -424,7 +459,10 @@ copilot/                        # Source files (mounted as .github/ in Docker)
     │   ├── SKILL.md
     │   ├── confluence_ingest.py
     │   ├── drawio_to_mermaid.py
-    │   └── plantuml_to_mermaid.py
+    │   ├── plantuml_to_mermaid.py
+    │   ├── svg_to_mermaid.py       # SVG XML → Mermaid (deterministic)
+    │   ├── validate_mermaid.py     # mmdc syntax validation
+    │   └── preextract_diagram.py   # OCR/CV context for vision fallback
     ├── image-to-mermaid/       # category: ingestion
     ├── index-query/            # category: utility
     ├── rules-extract/          # category: utility
@@ -435,6 +473,7 @@ copilot/                        # Source files (mounted as .github/ in Docker)
     ├── security-validate/      # category: security
     ├── merge-reports/          # category: reporting
     ├── markdown-to-html/       # category: reporting
+    ├── verbose-logging/        # logging templates for all agents
     └── <external-skill>/       # symlink -> ../../governance/external/<name>/...
 
 governance/
@@ -456,9 +495,14 @@ governance/
 │       └── _all.rules.md
 │
 └── output/                     # Generated outputs
+    ├── .cache/                 # SHA256-keyed conversion cache
+    │   └── mermaid/
+    │       ├── <hash>.mmd      # Cached Mermaid outputs
+    │       └── <hash>.meta     # Cache metadata (source, method, timestamp)
     ├── <PAGE_ID>/              # Page folder
     │   ├── page.md
     │   ├── metadata.json
+    │   ├── conversion-manifest.json  # Per-diagram: method, valid, deterministic
     │   └── attachments/
     └── <PAGE_ID>-*-report.md   # Validation reports
 ```

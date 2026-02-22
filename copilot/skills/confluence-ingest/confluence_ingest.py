@@ -7,6 +7,7 @@ and produces a self-contained Markdown file.
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -98,6 +99,370 @@ def is_drawio_file(filepath: str) -> bool:
         pass
     
     return False
+
+
+def extract_markdown_macros(storage_html: str) -> Tuple[str, List[str]]:
+    """
+    Extract raw markdown from Confluence Markdown macros in storage HTML.
+    Replaces each macro with a placeholder to be spliced back after HTML-to-MD conversion.
+    Returns (modified_html, list_of_raw_markdown_blocks).
+    """
+    blocks = []
+    pattern = re.compile(
+        r'<ac:structured-macro[^>]*ac:name="markdown"[^>]*>'
+        r'.*?<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>'
+        r'.*?</ac:structured-macro>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    def replacer(match):
+        idx = len(blocks)
+        raw_md = match.group(1)
+        blocks.append(raw_md)
+        return f'<!-- MD_BLOCK_{idx} -->'
+
+    modified = pattern.sub(replacer, storage_html)
+    if blocks:
+        print(f"  📝 Extracted {len(blocks)} Markdown macro(s) from storage HTML", file=sys.stderr)
+    return modified, blocks
+
+
+def splice_markdown_blocks(md_content: str, md_blocks: List[str]) -> str:
+    """Replace MD_BLOCK placeholders with original raw markdown content."""
+    for i, block in enumerate(md_blocks):
+        placeholder = f'<!-- MD_BLOCK_{i} -->'
+        md_content = md_content.replace(placeholder, block)
+    return md_content
+
+
+def extract_mermaid_macros(storage_html: str) -> Tuple[str, List[str]]:
+    """
+    Extract Mermaid diagram content from Confluence Mermaid plugin macros.
+    Replaces each macro with a placeholder and returns the Mermaid code blocks.
+    """
+    blocks = []
+    pattern = re.compile(
+        r'<ac:structured-macro[^>]*ac:name="mermaid"[^>]*>'
+        r'.*?<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>'
+        r'.*?</ac:structured-macro>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    def replacer(match):
+        idx = len(blocks)
+        mermaid_code = match.group(1).strip()
+        fenced = f'```mermaid\n{mermaid_code}\n```'
+        blocks.append(fenced)
+        return f'<!-- MERMAID_BLOCK_{idx} -->'
+
+    modified = pattern.sub(replacer, storage_html)
+    if blocks:
+        print(f"  🧜 Extracted {len(blocks)} Mermaid macro(s) from storage HTML", file=sys.stderr)
+    return modified, blocks
+
+
+def splice_mermaid_blocks(md_content: str, mermaid_blocks: List[str]) -> str:
+    """Replace MERMAID_BLOCK placeholders with fenced Mermaid code."""
+    for i, block in enumerate(mermaid_blocks):
+        placeholder = f'<!-- MERMAID_BLOCK_{i} -->'
+        md_content = md_content.replace(placeholder, block)
+    return md_content
+
+
+def extract_code_macros(storage_html: str) -> Tuple[str, List[str]]:
+    """
+    Extract Confluence Code Block macros from storage HTML.
+    Preserves language parameter and exact code content from CDATA.
+    Returns (modified_html, list_of_fenced_code_blocks).
+    """
+    blocks = []
+    pattern = re.compile(
+        r'<ac:structured-macro[^>]*ac:name="code"[^>]*>'
+        r'(.*?)'
+        r'<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>'
+        r'.*?</ac:structured-macro>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    def replacer(match):
+        idx = len(blocks)
+        params_section = match.group(1)
+        code_content = match.group(2)
+
+        lang_match = re.search(
+            r'<ac:parameter\s+ac:name="language"[^>]*>([^<]+)</ac:parameter>',
+            params_section, re.IGNORECASE
+        )
+        language = lang_match.group(1).strip() if lang_match else ''
+
+        title_match = re.search(
+            r'<ac:parameter\s+ac:name="title"[^>]*>([^<]+)</ac:parameter>',
+            params_section, re.IGNORECASE
+        )
+        title = title_match.group(1).strip() if title_match else ''
+
+        header = f'**{title}**\n\n' if title else ''
+        fenced = f'{header}```{language}\n{code_content}\n```'
+        blocks.append(fenced)
+        return f'<!-- CODE_BLOCK_{idx} -->'
+
+    modified = pattern.sub(replacer, storage_html)
+    if blocks:
+        print(f"  💻 Extracted {len(blocks)} Code Block macro(s) from storage HTML", file=sys.stderr)
+    return modified, blocks
+
+
+def splice_code_blocks(md_content: str, code_blocks: List[str]) -> str:
+    """Replace CODE_BLOCK placeholders with fenced code blocks."""
+    for i, block in enumerate(code_blocks):
+        placeholder = f'<!-- CODE_BLOCK_{i} -->'
+        md_content = md_content.replace(placeholder, block)
+    return md_content
+
+
+def extract_noformat_macros(storage_html: str) -> Tuple[str, List[str]]:
+    """
+    Extract Confluence No Format / Preformatted macros from storage HTML.
+    Preserves exact whitespace and formatting from CDATA.
+    Returns (modified_html, list_of_preformatted_blocks).
+    """
+    blocks = []
+    pattern = re.compile(
+        r'<ac:structured-macro[^>]*ac:name="noformat"[^>]*>'
+        r'.*?<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>'
+        r'.*?</ac:structured-macro>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    def replacer(match):
+        idx = len(blocks)
+        content = match.group(1)
+        fenced = f'```\n{content}\n```'
+        blocks.append(fenced)
+        return f'<!-- NOFORMAT_BLOCK_{idx} -->'
+
+    modified = pattern.sub(replacer, storage_html)
+    if blocks:
+        print(f"  📋 Extracted {len(blocks)} No Format macro(s) from storage HTML", file=sys.stderr)
+    return modified, blocks
+
+
+def splice_noformat_blocks(md_content: str, noformat_blocks: List[str]) -> str:
+    """Replace NOFORMAT_BLOCK placeholders with fenced code blocks."""
+    for i, block in enumerate(noformat_blocks):
+        placeholder = f'<!-- NOFORMAT_BLOCK_{i} -->'
+        md_content = md_content.replace(placeholder, block)
+    return md_content
+
+
+def extract_excerpt_macros(storage_html: str) -> Tuple[str, List[str]]:
+    """
+    Detect Confluence Excerpt macros and add boundary markers.
+    Excerpt content is rich-text-body (HTML), so it flows through the normal
+    HTML-to-MD pipeline. We just add markers so the excerpt name is preserved.
+    Returns (modified_html, list_of_excerpt_names).
+    """
+    names = []
+    pattern = re.compile(
+        r'<ac:structured-macro[^>]*ac:name="excerpt"[^>]*>'
+        r'(.*?)<ac:rich-text-body>(.*?)</ac:rich-text-body>'
+        r'.*?</ac:structured-macro>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    def replacer(match):
+        params_section = match.group(1)
+        rich_body = match.group(2)
+
+        name_match = re.search(
+            r'<ac:parameter\s+ac:name="(?:name|atlassian-macro-output-type)"[^>]*>([^<]+)</ac:parameter>',
+            params_section, re.IGNORECASE
+        )
+        name = name_match.group(1).strip() if name_match else f'excerpt_{len(names)}'
+        names.append(name)
+
+        return f'<!-- EXCERPT: {name} -->\n{rich_body}\n<!-- /EXCERPT: {name} -->'
+
+    modified = pattern.sub(replacer, storage_html)
+    if names:
+        print(f"  📌 Detected {len(names)} Excerpt macro(s): {names}", file=sys.stderr)
+    return modified, names
+
+
+def extract_inline_svgs(html_content: str, download_dir: Path) -> Tuple[str, Dict[str, str]]:
+    """
+    Extract inline <svg> elements from HTML, save as .svg files,
+    and replace with img tags pointing to the saved files.
+    Returns (modified_html, svg_filename_map).
+    """
+    if not HAS_BS4:
+        return html_content, {}
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+    svg_map = {}
+    svg_elements = soup.find_all('svg')
+
+    if not svg_elements:
+        return html_content, {}
+
+    print(f"  🖼️  Extracting {len(svg_elements)} inline SVG element(s)", file=sys.stderr)
+
+    for i, svg_elem in enumerate(svg_elements):
+        svg_str = str(svg_elem)
+        if len(svg_str) < 100:
+            continue
+
+        filename = f'inline_svg_{i}.svg'
+        svg_path = download_dir / filename
+        with open(svg_path, 'w', encoding='utf-8') as f:
+            f.write(svg_str)
+
+        img_tag = soup.new_tag('img')
+        img_tag['src'] = filename
+        img_tag['alt'] = f'Inline SVG diagram {i}'
+        svg_elem.replace_with(img_tag)
+        svg_map[filename] = str(svg_path)
+        print(f"    ✓ Saved inline SVG as: {filename}", file=sys.stderr)
+
+    return str(soup), svg_map
+
+
+def convert_svg_to_mermaid_file(svg_path: Path) -> Optional[str]:
+    """Convert an SVG file to Mermaid using the local svg_to_mermaid script."""
+    script_dir = Path(__file__).parent
+    script_paths = [
+        script_dir / 'svg_to_mermaid.py',
+        Path('copilot/skills/confluence-ingest/svg_to_mermaid.py'),
+    ]
+
+    script_path = None
+    for p in script_paths:
+        if p.exists():
+            script_path = p
+            break
+
+    if not script_path:
+        return None
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path), '--input', str(svg_path)],
+            capture_output=True, text=True, check=True, timeout=30
+        )
+        if result.stdout and result.stdout.strip():
+            return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        pass
+    except subprocess.TimeoutExpired:
+        print(f"  ✗ SVG conversion timed out for {svg_path.name}", file=sys.stderr)
+    except Exception as e:
+        print(f"  ✗ SVG conversion error: {e}", file=sys.stderr)
+
+    return None
+
+
+def validate_mermaid_code(mermaid_code: str) -> Tuple[bool, str]:
+    """Validate Mermaid syntax using validate_mermaid.py."""
+    script_dir = Path(__file__).parent
+    script_paths = [
+        script_dir / 'validate_mermaid.py',
+        Path('copilot/skills/confluence-ingest/validate_mermaid.py'),
+    ]
+
+    script_path = None
+    for p in script_paths:
+        if p.exists():
+            script_path = p
+            break
+
+    if not script_path:
+        return True, "validator not available"
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path), '--code', mermaid_code, '--json'],
+            capture_output=True, text=True, timeout=30
+        )
+        data = json.loads(result.stdout)
+        return data.get('valid', True), data.get('error', '')
+    except Exception:
+        return True, "validation skipped"
+
+
+def compute_file_hash(filepath: Path) -> str:
+    """Compute SHA256 hash of a file for cache keying."""
+    h = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_cache_dir(output_dir: str = "governance/output") -> Path:
+    """Get or create the cache directory."""
+    cache_dir = Path(output_dir) / '.cache' / 'mermaid'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def check_cache(file_hash: str, output_dir: str = "governance/output") -> Optional[str]:
+    """Check if a validated Mermaid result exists in cache."""
+    cache_dir = get_cache_dir(output_dir)
+    mmd_path = cache_dir / f'{file_hash}.mmd'
+    if mmd_path.exists():
+        return mmd_path.read_text(encoding='utf-8')
+    return None
+
+
+def store_cache(file_hash: str, mermaid_code: str, source_name: str,
+                method: str, output_dir: str = "governance/output") -> None:
+    """Store validated Mermaid result in cache."""
+    cache_dir = get_cache_dir(output_dir)
+
+    mmd_path = cache_dir / f'{file_hash}.mmd'
+    mmd_path.write_text(mermaid_code, encoding='utf-8')
+
+    meta = {
+        'source': source_name,
+        'method': method,
+        'cached_at': datetime.now().isoformat(),
+        'hash': file_hash,
+    }
+    meta_path = cache_dir / f'{file_hash}.meta'
+    meta_path.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+
+
+def run_preextract(image_path: Path) -> Optional[dict]:
+    """Run pre-extraction on an image file, returning the context dict."""
+    script_dir = Path(__file__).parent
+    script_paths = [
+        script_dir / 'preextract_diagram.py',
+        Path('copilot/skills/confluence-ingest/preextract_diagram.py'),
+    ]
+
+    script_path = None
+    for p in script_paths:
+        if p.exists():
+            script_path = p
+            break
+
+    if not script_path:
+        return None
+
+    context_path = f"{image_path}.context.json"
+    try:
+        subprocess.run(
+            [sys.executable, str(script_path), '--input', str(image_path),
+             '--output', context_path],
+            capture_output=True, text=True, timeout=60
+        )
+        if Path(context_path).exists():
+            with open(context_path, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"  ⚠ Pre-extraction failed for {image_path.name}: {e}", file=sys.stderr)
+
+    return None
 
 
 def download_attachments(confluence: Confluence, page_id: str, download_dir: Path) -> Tuple[Dict[str, str], List[str]]:
@@ -754,15 +1119,34 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     # Download attachments
     attachment_map, drawio_files = download_attachments(confluence, page_id, download_dir)
     
-    # Get HTML content - prefer view format for better rendering
+    # Get HTML content
     storage_content = page.get('body', {}).get('storage', {}).get('value', '')
     view_content = page.get('body', {}).get('view', {}).get('value', '')
     html_content = view_content if view_content else storage_content
-    
+
     if not html_content:
         print("Warning: Page has no body content", file=sys.stderr)
         html_content = ""
-    
+
+    # --- Layer 1: Extract all CDATA macros from storage HTML (deterministic) ---
+    # These macros have plain-text-body with CDATA that gets mangled in the
+    # storage → Confluence HTML → markdownify round-trip. Extract them from
+    # storage, replace with placeholders, then splice back after conversion.
+    md_blocks = []
+    mermaid_macro_blocks = []
+    code_blocks = []
+    noformat_blocks = []
+    excerpt_names = []
+
+    if storage_content:
+        storage_content, md_blocks = extract_markdown_macros(storage_content)
+        storage_content, mermaid_macro_blocks = extract_mermaid_macros(storage_content)
+        storage_content, code_blocks = extract_code_macros(storage_content)
+        storage_content, noformat_blocks = extract_noformat_macros(storage_content)
+        storage_content, excerpt_names = extract_excerpt_macros(storage_content)
+
+    any_extracted = md_blocks or mermaid_macro_blocks or code_blocks or noformat_blocks or excerpt_names
+
     # Debug: Check for images, SVGs and drawio elements
     print("\n--- DEBUG: Checking page content ---", file=sys.stderr)
     svg_count = len(re.findall(r'<svg[^>]*>', html_content, re.IGNORECASE))
@@ -770,24 +1154,41 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     drawio_macros = re.findall(r'<div[^>]*class="[^"]*drawio-macro[^"]*"[^>]*>', html_content, re.IGNORECASE)
     linked_resources = re.findall(r'data-linked-resource-default-alias="([^"]+)"', html_content)
     ac_images = re.findall(r'<ac:image[^>]*>.*?</ac:image>', storage_content, re.DOTALL)
-    
+
     print(f"  SVG elements: {svg_count}", file=sys.stderr)
     print(f"  IMG elements: {img_count}", file=sys.stderr)
     print(f"  DrawIO macro placeholders: {len(drawio_macros)}", file=sys.stderr)
     print(f"  Linked resources: {linked_resources}", file=sys.stderr)
     print(f"  ac:image macros in storage: {len(ac_images)}", file=sys.stderr)
+    if md_blocks:
+        print(f"  Markdown macros extracted: {len(md_blocks)}", file=sys.stderr)
+    if mermaid_macro_blocks:
+        print(f"  Mermaid macros extracted: {len(mermaid_macro_blocks)}", file=sys.stderr)
+    if code_blocks:
+        print(f"  Code Block macros extracted: {len(code_blocks)}", file=sys.stderr)
+    if noformat_blocks:
+        print(f"  No Format macros extracted: {len(noformat_blocks)}", file=sys.stderr)
+    if excerpt_names:
+        print(f"  Excerpt macros detected: {excerpt_names}", file=sys.stderr)
     print("--- END DEBUG ---\n", file=sys.stderr)
-    
+
+    # --- Layer 1c: Extract inline SVGs from view HTML ---
+    svg_file_map = {}
+    if svg_count > 0:
+        html_content, svg_file_map = extract_inline_svgs(html_content, download_dir)
+        if svg_file_map:
+            attachment_map.update({k: k for k in svg_file_map})
+
     # Process Draw.io diagrams
     diagram_map = extract_drawio_diagrams(html_content, confluence, download_dir, attachment_map)
     html_content = replace_drawio_with_images(html_content, diagram_map, attachment_map)
-    
+
     # Embed local images
     html_content = extract_and_embed_images(storage_content, html_content, attachment_map)
-    
+
     # Process Confluence tabs
     html_content = process_confluence_tabs(html_content)
-    
+
     # Save intermediate HTML (useful for debugging)
     html_filename = f"{title.replace('/', '_').replace(' ', '_')}.html"
     html_path = page_dir / html_filename
@@ -797,92 +1198,300 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
 <head><meta charset="UTF-8"><title>{title}</title></head>
 <body><h1>{title}</h1>{html_content}</body>
 </html>""")
-    
+
     # Convert to Markdown
     md_content = convert_html_to_markdown(html_content, attachment_map)
     md_content = f"# {title}\n\n{md_content}"
-    
-    # Convert Draw.io diagrams to Mermaid using XML parsing (FREE - no model costs)
+
+    # Splice back all extracted CDATA macro content (deterministic, preserves original authoring).
+    # When view_content was used for HTML processing, the placeholders from storage
+    # extraction won't exist in md_content. In that case, append each un-spliced block
+    # so no extracted content is lost.
+    if md_blocks:
+        md_content = splice_markdown_blocks(md_content, md_blocks)
+        for i, block in enumerate(md_blocks):
+            if f'<!-- MD_BLOCK_{i} -->' in md_content:
+                print(f"  ⚠ Markdown block {i} placeholder survived view rendering but was not spliced", file=sys.stderr)
+
+    if mermaid_macro_blocks:
+        before = md_content
+        md_content = splice_mermaid_blocks(md_content, mermaid_macro_blocks)
+        for i, block in enumerate(mermaid_macro_blocks):
+            placeholder = f'<!-- MERMAID_BLOCK_{i} -->'
+            if placeholder in before and placeholder not in md_content:
+                continue  # successfully spliced
+            if placeholder not in before:
+                # Placeholder didn't survive view rendering -- inject at end of content
+                md_content += f'\n\n{block}\n'
+                print(f"  📎 Mermaid macro {i} injected (view rendering stripped placeholder)", file=sys.stderr)
+
+    if code_blocks:
+        before = md_content
+        md_content = splice_code_blocks(md_content, code_blocks)
+        for i, block in enumerate(code_blocks):
+            placeholder = f'<!-- CODE_BLOCK_{i} -->'
+            if placeholder in before and placeholder not in md_content:
+                continue
+            if placeholder not in before:
+                md_content += f'\n\n{block}\n'
+                print(f"  📎 Code block {i} injected (view rendering stripped placeholder)", file=sys.stderr)
+
+    if noformat_blocks:
+        before = md_content
+        md_content = splice_noformat_blocks(md_content, noformat_blocks)
+        for i, block in enumerate(noformat_blocks):
+            placeholder = f'<!-- NOFORMAT_BLOCK_{i} -->'
+            if placeholder in before and placeholder not in md_content:
+                continue
+            if placeholder not in before:
+                md_content += f'\n\n{block}\n'
+                print(f"  📎 NoFormat block {i} injected (view rendering stripped placeholder)", file=sys.stderr)
+
+    # --- Conversion cascade: Draw.io → SVG → Cache → Vision ---
     diagram_mermaid_map = {}
+    conversion_manifest = []
+
     if convert_diagrams:
-        # Scan download directory for ALL .drawio files
+        # Phase 1: Draw.io files → Mermaid via XML parsing (deterministic, FREE)
         all_drawio_files = []
         if download_dir.exists():
-            all_drawio_files = [f.name for f in download_dir.iterdir() 
+            all_drawio_files = [f.name for f in download_dir.iterdir()
                                if f.is_file() and (f.suffix.lower() == '.drawio' or is_drawio_file(str(f)))]
-        
-        # Also include any from the drawio_files list
         all_drawio_files = list(set(all_drawio_files + drawio_files))
-        
+
         if all_drawio_files:
             print(f"\n📊 DRAW.IO → MERMAID (XML parsing - FREE, no model cost)", file=sys.stderr)
             print(f"   Found {len(all_drawio_files)} Draw.io file(s)", file=sys.stderr)
-            
+
             for drawio_file in all_drawio_files:
                 drawio_path = download_dir / drawio_file
                 if not drawio_path.exists():
                     print(f"   ⚠ File not found: {drawio_file}", file=sys.stderr)
                     continue
-                
+
+                file_hash = compute_file_hash(drawio_path)
+                cached = check_cache(file_hash, output_dir)
+                if cached:
+                    diagram_mermaid_map[drawio_file] = cached
+                    png_name = os.path.splitext(drawio_file)[0] + '.png'
+                    diagram_mermaid_map[png_name] = cached
+                    print(f"   ✅ {drawio_file} → Mermaid (cache hit)", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': drawio_file, 'method': 'drawio_xml',
+                        'deterministic': True, 'valid': True,
+                        'cache_hit': True, 'cache_key': file_hash,
+                    })
+                    continue
+
                 print(f"   📄 {drawio_file} → parsing XML...", file=sys.stderr)
                 mermaid_code = convert_drawio_to_mermaid(drawio_path)
-                
+
                 if mermaid_code and "No diagram data extracted" not in mermaid_code:
-                    # Map both .drawio and .png versions (PNG preview uses same name)
-                    diagram_mermaid_map[drawio_file] = mermaid_code
-                    png_name = os.path.splitext(drawio_file)[0] + '.png'
-                    diagram_mermaid_map[png_name] = mermaid_code
-                    print(f"   ✅ {drawio_file} → Mermaid (success)", file=sys.stderr)
+                    is_valid, val_error = validate_mermaid_code(mermaid_code)
+                    if is_valid:
+                        diagram_mermaid_map[drawio_file] = mermaid_code
+                        png_name = os.path.splitext(drawio_file)[0] + '.png'
+                        diagram_mermaid_map[png_name] = mermaid_code
+                        store_cache(file_hash, mermaid_code, drawio_file, 'drawio_xml', output_dir)
+                        print(f"   ✅ {drawio_file} → Mermaid (success, validated)", file=sys.stderr)
+                        conversion_manifest.append({
+                            'source': drawio_file, 'method': 'drawio_xml',
+                            'deterministic': True, 'valid': True,
+                            'cache_hit': False, 'cache_key': file_hash,
+                        })
+                    else:
+                        print(f"   ⚠ {drawio_file} → Mermaid INVALID: {val_error}", file=sys.stderr)
+                        conversion_manifest.append({
+                            'source': drawio_file, 'method': 'drawio_xml',
+                            'deterministic': True, 'valid': False,
+                            'error': val_error,
+                        })
                 else:
-                    print(f"   ⚠ {drawio_file} → XML parsing failed (agent will use vision on PNG)", file=sys.stderr)
+                    print(f"   ⚠ {drawio_file} → XML parsing failed", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': drawio_file, 'method': 'drawio_xml',
+                        'deterministic': True, 'valid': False,
+                        'error': 'XML parsing produced no output',
+                    })
         else:
             print("\n📊 DRAW.IO: No .drawio files found", file=sys.stderr)
-    
+
+        # Phase 2: SVG files → Mermaid via XML parsing (deterministic, FREE)
+        svg_files = []
+        if download_dir.exists():
+            svg_files = [f.name for f in download_dir.iterdir()
+                        if f.is_file() and f.suffix.lower() == '.svg']
+
+        already_converted = set(diagram_mermaid_map.keys())
+        svg_to_convert = [f for f in svg_files if f not in already_converted]
+
+        if svg_to_convert:
+            print(f"\n🖼️  SVG → MERMAID (XML parsing - FREE, deterministic)", file=sys.stderr)
+            print(f"   Found {len(svg_to_convert)} SVG file(s) to convert", file=sys.stderr)
+
+            for svg_file in svg_to_convert:
+                svg_path = download_dir / svg_file
+                file_hash = compute_file_hash(svg_path)
+
+                cached = check_cache(file_hash, output_dir)
+                if cached:
+                    diagram_mermaid_map[svg_file] = cached
+                    print(f"   ✅ {svg_file} → Mermaid (cache hit)", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': svg_file, 'method': 'svg_xml',
+                        'deterministic': True, 'valid': True,
+                        'cache_hit': True, 'cache_key': file_hash,
+                    })
+                    continue
+
+                print(f"   📄 {svg_file} → parsing SVG XML...", file=sys.stderr)
+                mermaid_code = convert_svg_to_mermaid_file(svg_path)
+
+                if mermaid_code:
+                    is_valid, val_error = validate_mermaid_code(mermaid_code)
+                    if is_valid:
+                        diagram_mermaid_map[svg_file] = mermaid_code
+                        store_cache(file_hash, mermaid_code, svg_file, 'svg_xml', output_dir)
+                        print(f"   ✅ {svg_file} → Mermaid (success, validated)", file=sys.stderr)
+                        conversion_manifest.append({
+                            'source': svg_file, 'method': 'svg_xml',
+                            'deterministic': True, 'valid': True,
+                            'cache_hit': False, 'cache_key': file_hash,
+                        })
+                    else:
+                        print(f"   ⚠ {svg_file} → Mermaid INVALID: {val_error} (agent will use vision)", file=sys.stderr)
+                        conversion_manifest.append({
+                            'source': svg_file, 'method': 'svg_xml',
+                            'deterministic': True, 'valid': False,
+                            'error': val_error,
+                        })
+                else:
+                    print(f"   ⚠ {svg_file} → SVG parsing failed (embedded raster or no shapes)", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': svg_file, 'method': 'svg_xml',
+                        'deterministic': True, 'valid': False,
+                        'error': 'SVG contains embedded raster or no parseable shapes',
+                    })
+
     # Inline Mermaid diagrams (replace image refs with Mermaid)
     if diagram_mermaid_map:
-        print(f"\n🔄 Replacing {len(diagram_mermaid_map)//2} diagram reference(s) with Mermaid...", file=sys.stderr)
+        unique_count = len(set(diagram_mermaid_map.values()))
+        print(f"\n🔄 Replacing {unique_count} diagram reference(s) with Mermaid...", file=sys.stderr)
         md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
-    
+
     # Fix image paths to include attachments folder prefix and convert Confluence URLs
     attachments_folder = "attachments"
     md_content = fix_image_paths(md_content, attachments_folder, attachment_map)
-    
+
+    # Phase 3: Pre-extract context for remaining images (for agent vision fallback)
+    remaining_image_refs = re.findall(r'!\[[^\]]*\]\(([^)]*\.(png|jpg|jpeg|gif|svg))\)', md_content)
+    preextract_results = {}
+    if remaining_image_refs:
+        print(f"\n🔍 PRE-EXTRACTING context for {len(remaining_image_refs)} remaining image(s)...", file=sys.stderr)
+        for img_path, ext in remaining_image_refs:
+            full_path = page_dir / img_path
+            if full_path.exists():
+                context = run_preextract(full_path)
+                if context:
+                    preextract_results[img_path] = context
+                    label_count = len(context.get('ocr_labels', []))
+                    color_count = len(context.get('colors', []))
+                    print(f"   ✓ {img_path}: {label_count} labels, {color_count} colors extracted", file=sys.stderr)
+
     # Save final Markdown to page folder
     final_md_path = page_dir / "page.md"
     with open(final_md_path, 'w', encoding='utf-8') as f:
         f.write(md_content)
-    
+
     # Save metadata to page folder
     metadata['attachments'] = list(attachment_map.keys())
     metadata['drawio_files'] = drawio_files
     metadata['converted_diagrams'] = list(diagram_mermaid_map.keys())
-    
+
     meta_path = page_dir / "metadata.json"
     with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
-    
-    # Print summary
-    remaining_image_refs = re.findall(r'!\[[^\]]*\]\(([^)]*\.(png|jpg|jpeg|gif|svg))\)', md_content)
+
+    # --- Layer 5: Generate conversion manifest ---
     remaining_images = len(remaining_image_refs)
+    for img_path, ext in remaining_image_refs:
+        entry = {
+            'source': img_path.split('/')[-1],
+            'method': 'vision_llm',
+            'deterministic': False,
+            'valid': None,
+            'manual_review': True,
+        }
+        if img_path in preextract_results:
+            ctx = preextract_results[img_path]
+            entry['preextract'] = f"{Path(img_path).name}.context.json"
+            entry['ocr_labels'] = ctx.get('ocr_labels', [])
+        conversion_manifest.append(entry)
+
+    deterministic_count = sum(1 for e in conversion_manifest if e.get('deterministic'))
+    vision_count = sum(1 for e in conversion_manifest if e.get('method') == 'vision_llm')
+    failed_count = sum(1 for e in conversion_manifest if e.get('valid') is False)
+    cached_count = sum(1 for e in conversion_manifest if e.get('cache_hit'))
+
+    manifest = {
+        'diagrams': conversion_manifest,
+        'summary': {
+            'total': len(conversion_manifest),
+            'deterministic': deterministic_count,
+            'vision': vision_count,
+            'manual_review_needed': vision_count,
+            'failed': failed_count,
+            'cached': cached_count,
+        }
+    }
+
+    manifest_path = page_dir / "conversion-manifest.json"
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(manifest, f, indent=2)
+
+    # Print summary
     mermaid_count = len(re.findall(r'```mermaid', md_content))
-    
+
     print("\n" + "="*60, file=sys.stderr)
     print("✅ INGESTION COMPLETE", file=sys.stderr)
     print("="*60, file=sys.stderr)
     print(f"   Output: {final_md_path}", file=sys.stderr)
     print(f"   Attachments: {download_dir}", file=sys.stderr)
-    
+    print(f"   Manifest: {manifest_path}", file=sys.stderr)
+
     if mermaid_count > 0:
-        print(f"\n   📊 Draw.io → Mermaid: {mermaid_count} diagram(s) converted (FREE via XML parsing)", file=sys.stderr)
-    
+        print(f"\n   📊 Mermaid diagrams: {mermaid_count} total in output", file=sys.stderr)
+    if deterministic_count > 0:
+        print(f"   ✅ Deterministic conversions: {deterministic_count} (Draw.io XML + SVG)", file=sys.stderr)
+    if cached_count > 0:
+        print(f"   💾 Cache hits: {cached_count}", file=sys.stderr)
+    if md_blocks:
+        print(f"   📝 Markdown macros preserved: {len(md_blocks)}", file=sys.stderr)
+    if mermaid_macro_blocks:
+        print(f"   🧜 Mermaid macros preserved: {len(mermaid_macro_blocks)}", file=sys.stderr)
+    if code_blocks:
+        print(f"   💻 Code Block macros preserved: {len(code_blocks)}", file=sys.stderr)
+    if noformat_blocks:
+        print(f"   📋 No Format macros preserved: {len(noformat_blocks)}", file=sys.stderr)
+    if excerpt_names:
+        print(f"   📌 Excerpt boundaries marked: {excerpt_names}", file=sys.stderr)
+
     if remaining_images > 0:
-        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) (costs $$ - no .drawio source)", file=sys.stderr)
+        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) (non-deterministic)", file=sys.stderr)
         for img_path, ext in remaining_image_refs:
-            print(f"      → {img_path}", file=sys.stderr)
-        print(f"\n   📋 Agent: Read each image and convert to Mermaid", file=sys.stderr)
+            ctx = preextract_results.get(img_path, {})
+            labels = ctx.get('ocr_labels', [])
+            label_info = f" ({len(labels)} OCR labels pre-extracted)" if labels else ""
+            print(f"      → {img_path}{label_info}", file=sys.stderr)
+        print(f"\n   ⚠️  MANUAL REVIEW NEEDED for vision-converted diagrams", file=sys.stderr)
+        print(f"\n   💡 To make deterministic, upload .drawio or .svg source files:", file=sys.stderr)
+        for img_path, ext in remaining_image_refs:
+            base = os.path.splitext(img_path.split('/')[-1])[0]
+            print(f"      {img_path} → upload {base}.drawio or {base}.svg", file=sys.stderr)
+        print(f"\n   📋 Agent: Run preextract_diagram.py first, then convert with vision", file=sys.stderr)
     else:
-        print(f"\n   ✅ All diagrams converted - no vision needed (saved $$$)", file=sys.stderr)
-    
+        print(f"\n   ✅ All diagrams converted deterministically - no vision needed", file=sys.stderr)
+
     return {
         'metadata': metadata,
         'page_dir': str(page_dir),
@@ -890,7 +1499,8 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         'attachments_dir': str(download_dir),
         'attachments': list(attachment_map.keys()),
         'drawio_files': drawio_files,
-        'mermaid_diagrams': len(diagram_mermaid_map)
+        'mermaid_diagrams': len(diagram_mermaid_map),
+        'manifest': manifest,
     }
 
 

@@ -5,13 +5,14 @@ FROM python:3.11-slim
 LABEL maintainer="Architecture Governance"
 LABEL description="Lightweight container for architecture governance validation using GitHub Copilot"
 
-# Install system dependencies
+# Install system dependencies + Tesseract OCR for diagram pre-extraction
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     jq \
     ca-certificates \
     gnupg \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 LTS (ignore SSL for corporate proxies/self-signed certs)
@@ -32,6 +33,10 @@ WORKDIR /app
 # Copy requirements and install Python dependencies (ignore SSL)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
+
+# Install Mermaid CLI for diagram syntax validation
+COPY package.json .
+RUN npm install --ignore-scripts
 
 # Copy application files (copilot/ mounted as .github/ for Copilot CLI)
 COPY copilot/ ./.github/
