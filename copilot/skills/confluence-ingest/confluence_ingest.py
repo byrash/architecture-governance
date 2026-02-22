@@ -969,8 +969,8 @@ def convert_drawio_to_mermaid(drawio_path: Path) -> Optional[str]:
 def inline_mermaid_diagrams(md_content: str, diagram_mermaid_map: Dict[str, str]) -> str:
     """Replace image references with Mermaid code blocks inline."""
     for filename, mermaid_code in diagram_mermaid_map.items():
-        # Match both formats: ![alt](path/file.png) and ![alt](file.png)
-        pattern = rf"!\[[^\]]*\]\([^)]*{re.escape(filename)}\)"
+        # Match: ![alt](any/path/filename) or ![alt](any/path/filename?query...)
+        pattern = rf"!\[[^\]]*\]\([^)]*{re.escape(filename)}[^)]*\)"
         if re.search(pattern, md_content):
             md_content = re.sub(pattern, f"\n{mermaid_code}\n", md_content, count=1)
             print(f"  ✓ Replaced {filename} with Mermaid", file=sys.stderr)
@@ -1288,24 +1288,22 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
 
                 if mermaid_code and "No diagram data extracted" not in mermaid_code:
                     is_valid, val_error = validate_mermaid_code(mermaid_code)
+                    # Always inline -- agent will fix syntax errors if validation failed
+                    diagram_mermaid_map[drawio_file] = mermaid_code
+                    png_name = os.path.splitext(drawio_file)[0] + '.png'
+                    diagram_mermaid_map[png_name] = mermaid_code
                     if is_valid:
-                        diagram_mermaid_map[drawio_file] = mermaid_code
-                        png_name = os.path.splitext(drawio_file)[0] + '.png'
-                        diagram_mermaid_map[png_name] = mermaid_code
                         store_cache(file_hash, mermaid_code, drawio_file, 'drawio_xml', output_dir)
-                        print(f"   ✅ {drawio_file} → Mermaid (success, validated)", file=sys.stderr)
-                        conversion_manifest.append({
-                            'source': drawio_file, 'method': 'drawio_xml',
-                            'deterministic': True, 'valid': True,
-                            'cache_hit': False, 'cache_key': file_hash,
-                        })
+                        print(f"   ✅ {drawio_file} → Mermaid (validated)", file=sys.stderr)
                     else:
-                        print(f"   ⚠ {drawio_file} → Mermaid INVALID: {val_error}", file=sys.stderr)
-                        conversion_manifest.append({
-                            'source': drawio_file, 'method': 'drawio_xml',
-                            'deterministic': True, 'valid': False,
-                            'error': val_error,
-                        })
+                        print(f"   ⚠ FIX NEEDED: {drawio_file} → Mermaid syntax error: {val_error}", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': drawio_file, 'method': 'drawio_xml',
+                        'deterministic': True, 'valid': is_valid,
+                        'needs_fix': not is_valid,
+                        'cache_hit': False, 'cache_key': file_hash,
+                        **(({'error': val_error} if not is_valid else {})),
+                    })
                 else:
                     print(f"   ⚠ {drawio_file} → XML parsing failed", file=sys.stderr)
                     conversion_manifest.append({
@@ -1349,22 +1347,20 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
 
                 if mermaid_code:
                     is_valid, val_error = validate_mermaid_code(mermaid_code)
+                    # Always inline -- agent will fix syntax errors if validation failed
+                    diagram_mermaid_map[svg_file] = mermaid_code
                     if is_valid:
-                        diagram_mermaid_map[svg_file] = mermaid_code
                         store_cache(file_hash, mermaid_code, svg_file, 'svg_xml', output_dir)
-                        print(f"   ✅ {svg_file} → Mermaid (success, validated)", file=sys.stderr)
-                        conversion_manifest.append({
-                            'source': svg_file, 'method': 'svg_xml',
-                            'deterministic': True, 'valid': True,
-                            'cache_hit': False, 'cache_key': file_hash,
-                        })
+                        print(f"   ✅ {svg_file} → Mermaid (validated)", file=sys.stderr)
                     else:
-                        print(f"   ⚠ {svg_file} → Mermaid INVALID: {val_error} (agent will use vision)", file=sys.stderr)
-                        conversion_manifest.append({
-                            'source': svg_file, 'method': 'svg_xml',
-                            'deterministic': True, 'valid': False,
-                            'error': val_error,
-                        })
+                        print(f"   ⚠ FIX NEEDED: {svg_file} → Mermaid syntax error: {val_error}", file=sys.stderr)
+                    conversion_manifest.append({
+                        'source': svg_file, 'method': 'svg_xml',
+                        'deterministic': True, 'valid': is_valid,
+                        'needs_fix': not is_valid,
+                        'cache_hit': False, 'cache_key': file_hash,
+                        **(({'error': val_error} if not is_valid else {})),
+                    })
                 else:
                     print(f"   ⚠ {svg_file} → SVG parsing failed (embedded raster or no shapes)", file=sys.stderr)
                     conversion_manifest.append({
@@ -1373,15 +1369,15 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                         'error': 'SVG contains embedded raster or no parseable shapes',
                     })
 
-    # Inline Mermaid diagrams (replace image refs with Mermaid)
+    # Fix image paths FIRST so URLs are normalized before Mermaid replacement
+    attachments_folder = "attachments"
+    md_content = fix_image_paths(md_content, attachments_folder, attachment_map)
+
+    # THEN inline Mermaid diagrams (replace normalized image refs with Mermaid)
     if diagram_mermaid_map:
         unique_count = len(set(diagram_mermaid_map.values()))
         print(f"\n🔄 Replacing {unique_count} diagram reference(s) with Mermaid...", file=sys.stderr)
         md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
-
-    # Fix image paths to include attachments folder prefix and convert Confluence URLs
-    attachments_folder = "attachments"
-    md_content = fix_image_paths(md_content, attachments_folder, attachment_map)
 
     # Phase 3: Pre-extract context for remaining images (for agent vision fallback)
     remaining_image_refs = re.findall(r'!\[[^\]]*\]\(([^)]*\.(png|jpg|jpeg|gif|svg))\)', md_content)
@@ -1475,6 +1471,14 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         print(f"   📋 No Format macros preserved: {len(noformat_blocks)}", file=sys.stderr)
     if excerpt_names:
         print(f"   📌 Excerpt boundaries marked: {excerpt_names}", file=sys.stderr)
+
+    # Print diagrams needing Mermaid syntax fix by agent
+    needs_fix = [e for e in conversion_manifest if e.get('needs_fix')]
+    if needs_fix:
+        print(f"\n   🔧 MERMAID FIX NEEDED: {len(needs_fix)} diagram(s) have syntax errors", file=sys.stderr)
+        print(f"      Agent: read the Mermaid block in page.md, fix the syntax error, re-validate", file=sys.stderr)
+        for entry in needs_fix:
+            print(f"      → {entry['source']}: {entry.get('error', 'unknown error')}", file=sys.stderr)
 
     if remaining_images > 0:
         print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) (non-deterministic)", file=sys.stderr)

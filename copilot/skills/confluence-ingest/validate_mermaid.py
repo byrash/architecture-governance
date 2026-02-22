@@ -49,8 +49,32 @@ def validate_basic(mermaid_code: str) -> Tuple[bool, str]:
     return True, ""
 
 
+def _run_mmdc(cmd: list, tmp_path: str) -> Tuple[bool, str, bool]:
+    """Run an mmdc command. Returns (success, error_msg, tool_available)."""
+    try:
+        result = subprocess.run(
+            cmd + ['-i', tmp_path, '-o', '/dev/null', '--quiet'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            return True, "", True
+        error_msg = (result.stderr or result.stdout or "Unknown error").strip()[:500]
+        infra_keywords = ['npm', 'registry', 'ENOENT', 'ECONNREFUSED', 'network',
+                          'ETIMEDOUT', 'ERR!', 'Could not resolve', 'fetch failed']
+        is_infra = any(kw.lower() in error_msg.lower() for kw in infra_keywords)
+        if is_infra:
+            return True, f"infra issue: {error_msg}", False
+        return False, f"mmdc validation failed: {error_msg}", True
+    except FileNotFoundError:
+        return True, "", False
+    except subprocess.TimeoutExpired:
+        return True, "timed out", False
+    except Exception:
+        return True, "", False
+
+
 def validate_with_mmdc(mermaid_code: str) -> Tuple[bool, str]:
-    """Validate using Mermaid CLI (mmdc). Falls back to basic validation if mmdc unavailable."""
+    """Validate using Mermaid CLI (mmdc). Tries host mmdc first, then npx fallback."""
     cleaned = mermaid_code.strip()
     cleaned = re.sub(r'^```mermaid\s*\n?', '', cleaned)
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
@@ -60,25 +84,23 @@ def validate_with_mmdc(mermaid_code: str) -> Tuple[bool, str]:
         tmp_path = f.name
 
     try:
-        result = subprocess.run(
-            ['npx', '-y', '@mermaid-js/mermaid-cli', 'mmdc',
-             '-i', tmp_path, '-o', '/dev/null', '--quiet'],
-            capture_output=True, text=True, timeout=30
-        )
+        # Try 1: Host machine's global mmdc
+        ok, err, available = _run_mmdc(['mmdc'], tmp_path)
+        if available:
+            return ok, err
 
-        if result.returncode == 0:
-            return True, ""
+        # Try 2: Local node_modules mmdc
+        ok, err, available = _run_mmdc(['npx', 'mmdc'], tmp_path)
+        if available:
+            return ok, err
 
-        error_msg = (result.stderr or result.stdout or "Unknown error").strip()
-        error_msg = error_msg[:500]
-        return False, f"mmdc validation failed: {error_msg}"
+        # Try 3: npx with auto-install (needs npm registry)
+        ok, err, available = _run_mmdc(
+            ['npx', '-y', '@mermaid-js/mermaid-cli', 'mmdc'], tmp_path)
+        if available:
+            return ok, err
 
-    except FileNotFoundError:
         return True, "mmdc not available, basic validation only"
-    except subprocess.TimeoutExpired:
-        return False, "mmdc validation timed out after 30s"
-    except Exception as e:
-        return True, f"mmdc check skipped: {e}"
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

@@ -118,7 +118,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-🔷 PATTERNS-AGENT: Step <N>/5 - <Action Description>
+🔷 PATTERNS-AGENT: Phase <N>/4 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -128,7 +128,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 
 ```
 ───────────────────────────────────────────────────
-🔷 PATTERNS-AGENT: Step <N>/5 - <Step Name> Complete
+🔷 PATTERNS-AGENT: Phase <N>/4 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -159,9 +159,9 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Error
 ```
 ───────────────────────────────────────────────────
-❌ PATTERNS-AGENT: Error at Step <N>
+❌ PATTERNS-AGENT: Error at Phase <N>
 ───────────────────────────────────────────────────
-   Step: <step name>
+   Phase: <phase name>
    Tool/Skill: <name>
    Error: <error message>
    Action: <what will be attempted next>
@@ -187,7 +187,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-📋 STANDARDS-AGENT: Step <N>/5 - <Action Description>
+📋 STANDARDS-AGENT: Phase <N>/4 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -197,7 +197,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 
 ```
 ───────────────────────────────────────────────────
-📋 STANDARDS-AGENT: Step <N>/5 - <Step Name> Complete
+📋 STANDARDS-AGENT: Phase <N>/4 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -227,9 +227,9 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Error
 ```
 ───────────────────────────────────────────────────
-❌ STANDARDS-AGENT: Error at Step <N>
+❌ STANDARDS-AGENT: Error at Phase <N>
 ───────────────────────────────────────────────────
-   Step: <step name>
+   Phase: <phase name>
    Tool/Skill: <name>
    Error: <error message>
    Action: <what will be attempted next>
@@ -255,7 +255,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-🔒 SECURITY-AGENT: Step <N>/7 - <Action Description>
+🔒 SECURITY-AGENT: Phase <N>/5 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -265,7 +265,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 
 ```
 ───────────────────────────────────────────────────
-🔒 SECURITY-AGENT: Step <N>/7 - <Step Name> Complete
+🔒 SECURITY-AGENT: Phase <N>/5 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -297,9 +297,9 @@ Each agent has its own logging format. Find your agent name below and use the co
 ### Error
 ```
 ───────────────────────────────────────────────────
-❌ SECURITY-AGENT: Error at Step <N>
+❌ SECURITY-AGENT: Error at Phase <N>
 ───────────────────────────────────────────────────
-   Step: <step name>
+   Phase: <phase name>
    Tool/Skill: <name>
    Error: <error message>
    Action: <what will be attempted next>

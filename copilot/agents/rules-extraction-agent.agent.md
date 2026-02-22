@@ -215,7 +215,7 @@ For each **stale** or **missing** file only:
 
 ### Step 3: Incrementally Update \_all.rules.md
 
-After re-extracting each stale/missing file, immediately merge its rules into `_all.rules.md` (same incremental approach as Batch Mode Step 3, sub-step 5). This avoids reading all per-file `.rules.md` into context at once.
+After re-extracting each stale/missing file, immediately merge its rules into `_all.rules.md` (same incremental approach as Batch Mode Step 2, sub-step 5). This avoids reading all per-file `.rules.md` into context at once.
 
 If `_all.rules.md` does not exist, build it incrementally by reading per-file `.rules.md` one at a time and merging.
 
