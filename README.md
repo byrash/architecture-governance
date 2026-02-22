@@ -97,7 +97,7 @@ flowchart TB
 
     subgraph SkillsPool[Skills - Auto-Discovered by Category]
         direction LR
-        IngSkills["ingestion\nconfluence-ingest\n  diagram_ast.py\n  ast_to_mermaid.py\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  image_to_ast.py\n  validate_mermaid.py\nimage-to-mermaid"]
+        IngSkills["ingestion\nconfluence-ingest\n  diagram_ast.py\n  ast_to_mermaid.py\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  image_to_ast.py\n  replace_diagrams.py\n  validate_mermaid.py\nimage-to-mermaid"]
         PatSkills["patterns\npattern-validate"]
         StdSkills["standards\nstandards-validate"]
         SecSkills["security\nsecurity-validate\n+ external skills"]
@@ -467,6 +467,7 @@ copilot/                        # Source files (mounted as .github/ in Docker)
     │   ├── plantuml_to_mermaid.py  # PlantUML → AST → Mermaid
     │   ├── svg_to_mermaid.py       # SVG XML → AST → Mermaid
     │   ├── image_to_ast.py         # CV+OCR → partial AST (needs LLM repair)
+    │   ├── replace_diagrams.py    # Post-repair: replace images + PlantUML + auto-fix Mermaid
     │   └── validate_mermaid.py     # mmdc syntax validation
     ├── image-to-mermaid/       # category: ingestion
     ├── index-query/            # category: utility

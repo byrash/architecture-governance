@@ -364,6 +364,41 @@ def convert_svg_to_mermaid_file(svg_path: Path, ast_output: Optional[str] = None
     return None
 
 
+def convert_plantuml_block(puml_content: str, ast_output: Optional[str] = None) -> Optional[str]:
+    """Convert a PlantUML block to Mermaid via plantuml_to_mermaid.py."""
+    script_dir = Path(__file__).parent
+    script_paths = [
+        script_dir / 'plantuml_to_mermaid.py',
+        Path('copilot/skills/confluence-ingest/plantuml_to_mermaid.py'),
+    ]
+    script_path = next((p for p in script_paths if p.exists()), None)
+    if not script_path:
+        return None
+
+    cmd = [sys.executable, str(script_path), '--stdin']
+    try:
+        result = subprocess.run(
+            cmd, input=puml_content,
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        mermaid = result.stdout.strip() if result.stdout else None
+        if mermaid and ast_output:
+            ast_cmd = [
+                sys.executable, str(script_path),
+                '--stdin', '--ast-output', ast_output,
+            ]
+            subprocess.run(
+                ast_cmd, input=puml_content,
+                capture_output=True, text=True, timeout=30,
+            )
+        return mermaid
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+    except Exception as e:
+        print(f"  Error: PlantUML conversion: {e}", file=sys.stderr)
+    return None
+
+
 def validate_mermaid_code(mermaid_code: str) -> Tuple[bool, str]:
     """Validate Mermaid syntax using validate_mermaid.py."""
     script_dir = Path(__file__).parent
@@ -1380,6 +1415,38 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                         'deterministic': True, 'valid': False,
                         'error': 'SVG contains embedded raster or no parseable shapes',
                     })
+
+    # Phase 2b: Auto-detect and convert PlantUML blocks in the markdown
+    _puml_startuml = re.compile(r'(@startuml\b[^\n]*\n.*?@enduml)', re.DOTALL | re.IGNORECASE)
+    _puml_fenced = re.compile(r'(```(?:plantuml|puml)\s*\n.*?```)', re.DOTALL | re.IGNORECASE)
+    puml_seq = 0
+    for pattern_re in (_puml_startuml, _puml_fenced):
+        for m in pattern_re.finditer(md_content):
+            block_text = m.group(1)
+            inner = re.sub(r'@startuml\b[^\n]*\n?', '', block_text, flags=re.IGNORECASE)
+            inner = re.sub(r'@enduml\b[^\n]*', '', inner, flags=re.IGNORECASE)
+            inner = re.sub(r'^```(?:plantuml|puml)\s*\n', '', inner, flags=re.IGNORECASE)
+            inner = re.sub(r'\n?```\s*$', '', inner)
+            inner = inner.strip()
+            if not inner:
+                continue
+            stem = f"plantuml_{puml_seq}"
+            ast_path = str(download_dir / f"{stem}.ast.json")
+            mermaid = convert_plantuml_block(inner, ast_output=ast_path)
+            if mermaid:
+                md_content = md_content.replace(block_text, f"\n{mermaid}\n", 1)
+                mmd_path = download_dir / f"{stem}.mmd"
+                mmd_path.write_text(mermaid, encoding='utf-8')
+                print(f"   ✅ PlantUML block → AST + Mermaid ({stem})", file=sys.stderr)
+                conversion_manifest.append({
+                    'source': f'{stem}.puml', 'method': 'plantuml_parser',
+                    'deterministic': True, 'valid': True,
+                    'ast_file': f"{stem}.ast.json",
+                    'mermaid_file': f"{stem}.mmd",
+                })
+                puml_seq += 1
+    if puml_seq:
+        print(f"\n🔄 Converted {puml_seq} PlantUML block(s) to Mermaid", file=sys.stderr)
 
     # Fix image paths FIRST so URLs are normalized before Mermaid replacement
     attachments_folder = "attachments"

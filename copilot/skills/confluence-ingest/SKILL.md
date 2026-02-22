@@ -45,6 +45,8 @@ All diagram converters produce a canonical `DiagramAST` (defined in `diagram_ast
 | `drawio_to_mermaid.py` | Draw.io XML → AST → Mermaid |
 | `svg_to_mermaid.py` | SVG XML → AST → Mermaid |
 | `plantuml_to_mermaid.py` | PlantUML → AST → Mermaid |
+| `replace_diagrams.py` | Post-repair tool: auto-converts PlantUML, replaces image refs with Mermaid from `.mmd` files, and auto-fixes common Mermaid syntax errors. Runs AFTER LLM repair. Usage: `python replace_diagrams.py --page-dir governance/output/<PAGE_ID>` |
+| `validate_mermaid.py` | Validates Mermaid syntax via `mmdc`. Usage: `python validate_mermaid.py --input diagram.mmd --json` |
 
 ## Setup (First Run Only)
 
@@ -151,15 +153,37 @@ python copilot/skills/confluence-ingest/plantuml_to_mermaid.py --input <PAGE_MD>
 
 **Zero external dependencies** -- uses only Python 3 standard library.
 
+## Post-Repair Diagram Replacement (replace_diagrams.py)
+
+After LLM repair of image ASTs (Step 4 in ingestion-agent), run this **single command** to handle all remaining diagram work with zero LLM cost:
+
+```bash
+python copilot/skills/confluence-ingest/replace_diagrams.py --page-dir governance/output/<PAGE_ID>
+```
+
+This script runs three phases:
+
+1. **PlantUML auto-detection** — finds and converts any `@startuml`/```plantuml/```puml blocks still in `page.md`
+2. **Image-ref replacement** — reads `conversion-manifest.json` and `.mmd` files, replaces all `![](image)` refs with inline Mermaid
+3. **Mermaid auto-fix** — patches unicode arrows, unclosed subgraphs, unquoted special-char labels
+
+Use `--dry-run` to preview without writing:
+
+```bash
+python copilot/skills/confluence-ingest/replace_diagrams.py --page-dir governance/output/<PAGE_ID> --dry-run
+```
+
+The script is idempotent — running it twice produces the same result.
+
 ## Next Steps
 
-After running the script, the ingestion-agent should:
+After running the script and `replace_diagrams.py`, the ingestion-agent should:
 
-1. **Convert remaining images** -- any PNG/JPG images that the script could not convert deterministically still need vision conversion via the `image-to-mermaid` skill
-2. **Replace all image references** in page.md with the generated Mermaid code blocks
+1. **Convert remaining images** -- any PNG/JPG images that the script could not convert deterministically need LLM repair via the `image-to-mermaid` skill (Step 4)
+2. **Run `replace_diagrams.py`** -- replaces all image references with Mermaid and auto-fixes syntax (Step 5)
 3. **Validate** that page.md has zero `![` image references remaining
 4. **Save** the final page.md to `governance/output/<PAGE_ID>/page.md`
-5. **Copy to index** (if ingest mode) from `governance/output/` to `governance/indexes/`
+5. **Copy to index** (if ingest mode) to `governance/indexes/<index>/<PAGE_ID>/`
 
 ## Why Deterministic Parsing?
 

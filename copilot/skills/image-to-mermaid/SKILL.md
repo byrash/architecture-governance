@@ -201,6 +201,16 @@ Always add a `%% Visual Legend` comment block at the end of every Mermaid diagra
 
 This helps downstream validation and rules-extraction agents interpret the full diagram semantics without needing the original image.
 
+## Post-Conversion: Replace Diagrams in page.md
+
+After LLM repair of all image ASTs, run the **replace_diagrams.py** tool to inline Mermaid into `page.md` without LLM cost:
+
+```bash
+python copilot/skills/confluence-ingest/replace_diagrams.py --page-dir governance/output/<PAGE_ID>
+```
+
+This replaces all remaining `![](image)` references with the Mermaid content from `.mmd` files, auto-converts any leftover PlantUML blocks, and auto-fixes common Mermaid syntax errors. See the `confluence-ingest` skill for full details.
+
 ## Post-Conversion Validation
 
 After generating Mermaid, optionally validate syntax if the tool is available:
