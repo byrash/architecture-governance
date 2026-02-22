@@ -146,11 +146,11 @@ python copilot/skills/confluence-ingest/plantuml_to_mermaid.py --input <PAGE_MD>
 
 After running the script, the ingestion-agent should:
 
-1. **Check `conversion-manifest.json`** for any `"method": "vision_llm"` entries
-2. **Run `preextract_diagram.py`** on those images (already done by script if deps available)
-3. **Include pre-extracted context** in the LLM vision prompt
-4. **Validate output** with `validate_mermaid.py` and retry up to 3 times
-5. **Flag for manual review** -- vision outputs are non-deterministic
+1. **Convert remaining images** -- any PNG/JPG images that the script could not convert deterministically still need vision conversion via the `image-to-mermaid` skill
+2. **Replace all image references** in page.md with the generated Mermaid code blocks
+3. **Validate** that page.md has zero `![` image references remaining
+4. **Save** the final page.md to `governance/output/<PAGE_ID>/page.md`
+5. **Copy to index** (if ingest mode) from `governance/output/` to `governance/indexes/`
 
 ## Why Deterministic Parsing?
 

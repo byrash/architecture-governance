@@ -1,7 +1,7 @@
 ---
 name: rules-extraction-agent
 description: Extracts structured governance rules from indexed documents into compact markdown-table format. Supports single-file mode (triggered by ingestion-agent) and batch-folder mode (user-invokable for processing entire index folders or any folder of .md files).
-model: ['claude-sonnet-4', 'gpt-4.1']
+model: ['Claude Sonnet 4.5', 'gpt-4.1']
 user-invokable: true
 tools: ['read', 'edit', 'search', 'vscode', 'execute']
 ---
@@ -12,11 +12,11 @@ You extract structured governance rules from raw architecture documents and prod
 
 **Three modes:**
 
-| Mode | Triggered By | Input | Output |
-|------|-------------|-------|--------|
-| **A: Batch-folder** | User directly | Folder path (+ optional category) | Per-file `.rules.md` for each source + consolidated `_all.rules.md` |
-| **B: Refresh** | User directly | Folder path + "refresh" | Re-extract only stale/missing `.rules.md` files, regenerate `_all.rules.md` |
-| **C: Single-file** | ingestion-agent (during ingest) | One `.md` file + category | One `.rules.md` alongside the source |
+| Mode                | Triggered By                    | Input                             | Output                                                                      |
+| ------------------- | ------------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| **A: Batch-folder** | User directly                   | Folder path (+ optional category) | Per-file `.rules.md` for each source + consolidated `_all.rules.md`         |
+| **B: Refresh**      | User directly                   | Folder path + "refresh"           | Re-extract only stale/missing `.rules.md` files, regenerate `_all.rules.md` |
+| **C: Single-file**  | ingestion-agent (during ingest) | One `.md` file + category         | One `.rules.md` alongside the source                                        |
 
 ## Example Invocations
 
@@ -64,14 +64,14 @@ Extract rules from governance/indexes/security/123-auth-standards.md for categor
 
 Parse the user prompt to determine mode:
 
-| Pattern | Mode | Input |
-|---------|------|-------|
-| Contains "refresh" or "update" | **Refresh** | Only re-extract stale files in folder |
-| Contains "check" or "status" | **Refresh (dry run)** | Report staleness, don't re-extract |
-| Path ends with `/` or is a directory | **Batch-folder** | Scan all `.md` files in folder |
-| Path ends with `.md` | **Single-file** | Process that one file |
-| Contains `category <name>` | Sets category | `patterns`, `standards`, `security`, or `general` |
-| No category specified | Auto-detect | Infer from folder name or use `general` |
+| Pattern                              | Mode                  | Input                                             |
+| ------------------------------------ | --------------------- | ------------------------------------------------- |
+| Contains "refresh" or "update"       | **Refresh**           | Only re-extract stale files in folder             |
+| Contains "check" or "status"         | **Refresh (dry run)** | Report staleness, don't re-extract                |
+| Path ends with `/` or is a directory | **Batch-folder**      | Scan all `.md` files in folder                    |
+| Path ends with `.md`                 | **Single-file**       | Process that one file                             |
+| Contains `category <name>`           | Sets category         | `patterns`, `standards`, `security`, or `general` |
+| No category specified                | Auto-detect           | Infer from folder name or use `general`           |
 
 ## Skills Used
 
@@ -117,6 +117,7 @@ For **each** `.md` file in the folder:
 Repeat for each file, incrementing the counter.
 
 **Key benefits of incremental consolidation:**
+
 - Only ONE source document + the current `_all.rules.md` are in context at any time
 - `_all.rules.md` is always up-to-date after each file completes
 - If interrupted mid-batch, `_all.rules.md` already has rules from all completed files
@@ -130,32 +131,33 @@ Repeat for each file, incrementing the counter.
 > Sources: <count> documents | Extracted: <timestamp> | Model: <actual model> | Category: <category>
 >
 > Source files:
+>
 > - <filename-1>.md (<rule-count> rules)
 > - <filename-2>.md (<rule-count> rules)
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| Critical | <n> |
-| High | <n> |
-| Medium | <n> |
-| Low | <n> |
+| Severity  | Count   |
+| --------- | ------- |
+| Critical  | <n>     |
+| High      | <n>     |
+| Medium    | <n>     |
+| Low       | <n>     |
 | **Total** | **<n>** |
 
 ## All Rules
 
-| ID | Rule | Sev | Req | Keywords | Condition | Source |
-|----|------|-----|-----|----------|-----------|--------|
-| R-001 | <rule name> | C | Y | <keywords> | <condition> | <source-filename> |
-| R-002 | <rule name> | H | Y | <keywords> | <condition> | <source-filename> |
+| ID    | Rule        | Sev | Req | Keywords   | Condition   | Source            |
+| ----- | ----------- | --- | --- | ---------- | ----------- | ----------------- |
+| R-001 | <rule name> | C   | Y   | <keywords> | <condition> | <source-filename> |
+| R-002 | <rule name> | H   | Y   | <keywords> | <condition> | <source-filename> |
 
 ## Cross-Document Patterns
 
 Document any rules that appeared across MULTIPLE source documents -- these are especially important as they represent widely-agreed governance principles:
 
-| Rule Pattern | Appears In | Severity |
-|-------------|-----------|----------|
+| Rule Pattern          | Appears In       | Severity           |
+| --------------------- | ---------------- | ------------------ |
 | <pattern description> | <file1>, <file2> | <highest severity> |
 ```
 
@@ -176,6 +178,7 @@ python3 copilot/skills/rules-extract/rules_check.py --folder <folder-path> --fix
 ```
 
 This tool compares each `.md` file against its `.rules.md` using:
+
 1. **Content fingerprint** (MD5 of first 64KB stored in `.rules.md` metadata) -- most reliable
 2. **File modification time** -- fallback when no fingerprint exists
 
@@ -186,6 +189,7 @@ This tool compares each `.md` file against its `.rules.md` using:
 ### Step 1: Check Staleness
 
 Run the staleness checker with `--json` output. Parse the result to identify:
+
 - **stale**: source `.md` changed since `.rules.md` was generated
 - **missing**: source `.md` exists but no `.rules.md` at all
 - **current**: no changes needed
@@ -198,16 +202,18 @@ Run the staleness checker with `--json` output. Parse the result to identify:
 ### Step 2: Re-extract Stale/Missing Files Only
 
 For each **stale** or **missing** file only:
+
 1. Read the source `.md`
 2. Extract rules using `rules-extract` skill
 3. Compute fingerprint: `hashlib.md5(open(path,'rb').read(65536)).hexdigest()[:12]`
 4. Write `.rules.md` with fingerprint in the metadata line
 
 **For orphaned `.rules.md` files** (source deleted):
+
 - Do NOT delete the `.rules.md` automatically
 - Log a warning so the user can decide
 
-### Step 3: Incrementally Update _all.rules.md
+### Step 3: Incrementally Update \_all.rules.md
 
 After re-extracting each stale/missing file, immediately merge its rules into `_all.rules.md` (same incremental approach as Batch Mode Step 3, sub-step 5). This avoids reading all per-file `.rules.md` into context at once.
 
@@ -230,6 +236,7 @@ Extract rules from governance/indexes/<category>/<PAGE_ID>-<title>.md for catego
 ```
 
 Parse:
+
 - **Document path**: the full path to the raw indexed document
 - **Category**: `patterns`, `standards`, or `security`
 
@@ -249,6 +256,7 @@ Follow the `rules-extract` skill instructions to extract:
 3. **Conventions** -- naming, color coding, technology choices from diagrams
 
 For each rule, determine:
+
 - **ID**: Sequential `R-001`, `R-002`, etc.
 - **Rule name**: Short (max 5 words)
 - **Severity**: C=Critical, H=High, M=Medium, L=Low
@@ -274,10 +282,10 @@ Write the output file at `<document-path-without-extension>.rules.md` using this
 
 > Source: <path> | Extracted: <timestamp> | Model: <actual model> | Category: <category> | Fingerprint: <md5-first-12-chars>
 
-| ID | Rule | Sev | Req | Keywords | Condition |
-|----|------|-----|-----|----------|-----------|
-| R-001 | <rule name> | C | Y | <keywords> | <condition> |
-| R-002 | <rule name> | H | Y | <keywords> | <condition> |
+| ID    | Rule        | Sev | Req | Keywords   | Condition   |
+| ----- | ----------- | --- | --- | ---------- | ----------- |
+| R-001 | <rule name> | C   | Y   | <keywords> | <condition> |
+| R-002 | <rule name> | H   | Y   | <keywords> | <condition> |
 ```
 
 **Severity codes**: C=Critical, H=High, M=Medium, L=Low

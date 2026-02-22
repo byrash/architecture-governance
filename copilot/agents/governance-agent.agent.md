@@ -1,24 +1,24 @@
 ---
 name: governance-agent
 description: Architecture governance orchestrator. Coordinates validation pipeline by triggering other agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
-model: gpt-4.1
+model: ['Claude Sonnet 4.5', 'gpt-4.1']
 tools: ['agent', 'read', 'edit', 'execute', 'todo']
 handoffs:
-  - label: "Step 1: Ingest Page"
+  - label: 'Step 1: Ingest Page'
     agent: ingestion-agent
-    prompt: "Ingest Confluence page <PAGE_ID> in governance mode"
+    prompt: 'Ingest Confluence page <PAGE_ID> in governance mode'
     send: false
-  - label: "Step 2: Validate Patterns"
+  - label: 'Step 2: Validate Patterns'
     agent: patterns-agent
-    prompt: "Validate governance/output/<PAGE_ID>/page.md"
+    prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
-  - label: "Step 3: Validate Standards"
+  - label: 'Step 3: Validate Standards'
     agent: standards-agent
-    prompt: "Validate governance/output/<PAGE_ID>/page.md"
+    prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
-  - label: "Step 4: Validate Security"
+  - label: 'Step 4: Validate Security'
     agent: security-agent
-    prompt: "Validate governance/output/<PAGE_ID>/page.md"
+    prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
 ---
 
@@ -50,6 +50,7 @@ When given a Confluence page ID to validate, execute these steps:
 ### Step 1: Trigger Ingestion Agent
 
 **Use the agent tool** to trigger `ingestion-agent`:
+
 - Agent: `ingestion-agent`
 - Prompt: `Ingest Confluence page <PAGE_ID> in governance mode`
 
@@ -92,6 +93,7 @@ Use the `markdown-to-html` skill. Build the HTML file in phases -- one source re
 ## Output Files
 
 All outputs in `governance/output/`:
+
 - `<PAGE_ID>/page.md` - Clean markdown (100% text/Mermaid)
 - `<PAGE_ID>/metadata.json` - Page metadata
 - `<PAGE_ID>/attachments/` - Original files
