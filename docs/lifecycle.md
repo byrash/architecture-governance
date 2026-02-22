@@ -111,28 +111,25 @@ flowchart TB
 
     subgraph smeFlow ["SME / Governance Author"]
         direction LR
-        S1["Ingest from<br/>Confluence (Day 0)"]:::sme
-        S2["Author Rules<br/>& Skills"]:::sme
-        S3["SIG / Working Group<br/>Review & Merge"]:::sme
-        S1 --> S2 --> S3
+        S1["Ingest from<br/>Confluence (Day 0)"]:::sme --> S2["Author Rules<br/>& Skills"]:::sme --> S3["SIG / Working Group<br/>Review & Merge"]:::sme
     end
 
-    R["Rules indexed into<br/>knowledge base"]:::sme
-    SK["Skills executed<br/>in pipeline"]:::sme
+    subgraph contribs ["Contributions"]
+        direction LR
+        R["Rules indexed into<br/>knowledge base"]:::sme ~~~ SK["Skills executed<br/>in pipeline"]:::sme
+    end
 
     GA["Governance Agent"]:::gov
 
     subgraph archFlow ["Solution Architect"]
         direction LR
-        A1["Author Architecture<br/>(Markdown + Mermaid)"]:::arch
-        A2["Commit to GitHub"]:::arch
+        A1["Author Architecture<br/>(Markdown + Mermaid)"]:::arch --> A2["Commit to GitHub"]:::arch
         A3["Scorecard<br/>PASS / WARN / FAIL"]:::arch
         A4["Publish"]:::arch
     end
 
-    S3 --> R & SK
-    R & SK --> GA
-    A1 --> A2 --> GA
+    smeFlow --> contribs --> GA
+    A2 --> GA
     GA --> A3
     A3 -->|"Pass"| A4
     A3 -.->|"Fail / Warn"| A1
@@ -172,25 +169,22 @@ flowchart TB
     classDef agent fill:#2563EB,color:#fff,stroke:#1D4ED8
     classDef skill fill:#7C3AED,color:#fff,stroke:#6D28D9
 
-    A1["Solution Architect<br/>commits to GitHub"]:::arch
-    GH["GitHub triggers<br/>governance pipeline"]:::infra
-    GA["Governance Agent<br/>(orchestrator)"]:::gov
-    IA["Ingestion Agent<br/>parses & validates"]:::gov
+    subgraph trigger ["Step 1: Trigger & Ingest"]
+        direction LR
+        A1["Solution Architect<br/>commits to GitHub"]:::arch --> GH["GitHub triggers<br/>governance pipeline"]:::infra --> GA["Governance Agent<br/>(orchestrator)"]:::gov --> IA["Ingestion Agent<br/>parses & validates"]:::gov
+    end
 
     subgraph parallel ["Step 2: Parallel Validation"]
         direction LR
-        PA["Patterns Agent<br/>(30% weight)"]:::agent
-        SA["Standards Agent<br/>(30% weight)"]:::agent
-        SEA["Security Agent<br/>(40% weight)"]:::agent
-        SK["Contributed Skills<br/>(auto-discovered)"]:::skill
+        PA["Patterns Agent<br/>(30% weight)"]:::agent ~~~ SA["Standards Agent<br/>(30% weight)"]:::agent ~~~ SEA["Security Agent<br/>(40% weight)"]:::agent ~~~ SK["Contributed Skills<br/>(auto-discovered)"]:::skill
     end
 
-    MR["Merge Reports<br/>(weighted scoring)"]:::gov
-    SC["Governance Scorecard<br/>PASS / WARN / FAIL"]:::gov
+    subgraph consolidate ["Step 3: Consolidate"]
+        direction LR
+        MR["Merge Reports<br/>(weighted scoring)"]:::gov --> SC["Governance Scorecard<br/>PASS / WARN / FAIL"]:::gov --> A2["Solution Architect"]:::arch
+    end
 
-    A1 --> GH --> GA --> IA --> parallel
-    PA & SA & SEA & SK --> MR --> SC
-    SC -->|"delivered to"| A2["Solution Architect"]:::arch
+    trigger --> parallel --> consolidate
 ```
 
 <p align="right"><sub><span style="display:inline-block;width:10px;height:10px;background:#059669;border-radius:2px;vertical-align:middle"></span> Architect &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#0891B2;border-radius:2px;vertical-align:middle"></span> Infrastructure &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#D97706;border-radius:2px;vertical-align:middle"></span> Pipeline &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#2563EB;border-radius:2px;vertical-align:middle"></span> Validation Agents &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#7C3AED;border-radius:2px;vertical-align:middle"></span> Contributed Skills</sub></p>
@@ -233,23 +227,25 @@ flowchart LR
     end
 
     subgraph sor [Source of Truth]
+        direction TB
         GH["GitHub Repository"]:::infra
         GC["Git Commits<br/>= Audit Trail"]:::infra
         GOV["Governance Agent<br/>validates on commit"]:::gov
         GH --> GC
         GH --> GOV
+        GC ~~~ GOV
     end
 
     subgraph out [Auto-Published Views]
         direction TB
         CF["Confluence<br/>(read-only mirror)"]:::publish
         DD["DevDocs / Static Site<br/>(visualization)"]:::publish
+        CF ~~~ DD
     end
 
     author -->|"commit"| sor
     sor -->|"CI/CD on merge<br/>(one-way sync)"| out
-
-    out -.->|"stakeholders<br/>view here"| SH["Stakeholders"]:::viewer
+    out -->|"stakeholders<br/>view here"| SH["Stakeholders"]:::viewer
 ```
 
 <p align="right"><sub><span style="display:inline-block;width:10px;height:10px;background:#059669;border-radius:2px;vertical-align:middle"></span> Architect &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#0891B2;border-radius:2px;vertical-align:middle"></span> Infrastructure &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#D97706;border-radius:2px;vertical-align:middle"></span> Governance &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#7C3AED;border-radius:2px;vertical-align:middle"></span> Publishing &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#6B7280;border-radius:2px;vertical-align:middle"></span> Stakeholders</sub></p>
@@ -325,7 +321,7 @@ This is how we address the "we already have years of content in Confluence" conc
 ## Slide 7: Business Benefits
 
 ```mermaid
-flowchart TB
+flowchart LR
     classDef enforce fill:#DC2626,color:#fff,stroke:#B91C1C
     classDef llm fill:#D97706,color:#fff,stroke:#B45309
     classDef scalable fill:#2563EB,color:#fff,stroke:#1D4ED8
@@ -333,34 +329,46 @@ flowchart TB
     classDef vizz fill:#7C3AED,color:#fff,stroke:#6D28D9
 
     subgraph enforcement [Enforcement]
+        direction TB
         E1["Automated validation<br/>of patterns, standards,<br/>security"]:::enforce
         E2["Consistent scoring<br/>across all architectures"]:::enforce
         E3["No manual review<br/>bottleneck"]:::enforce
+        E1 ~~~ E2 ~~~ E3
     end
 
     subgraph llmReady [LLM-Ready]
+        direction TB
         L1["Markdown is<br/>machine-readable"]:::llm
         L2["Enables AI-assisted<br/>architecture review"]:::llm
         L3["Confluence HTML<br/>is not LLM-friendly"]:::llm
+        L1 ~~~ L2 ~~~ L3
     end
 
     subgraph scale [Scalable Governance]
+        direction TB
         SC1["Teams contribute<br/>rules as skills"]:::scalable
         SC2["Inner Sourcing +<br/>SIG/Working Group model"]:::scalable
         SC3["Zero coordination<br/>after initial setup"]:::scalable
+        SC1 ~~~ SC2 ~~~ SC3
     end
 
     subgraph traceBlock [Traceability]
+        direction TB
         T1["Git commits =<br/>full audit trail"]:::trace
         T2["Every decision<br/>is versioned"]:::trace
         T3["Compliance is<br/>quantifiable"]:::trace
+        T1 ~~~ T2 ~~~ T3
     end
 
-    subgraph viz [Stakeholder Communication]
+    subgraph viz ["Stakeholder&nbsp;Communication"]
+        direction TB
         V1["Auto-publish to<br/>Confluence / DevDocs"]:::vizz
         V2["Mermaid diagrams<br/>render natively"]:::vizz
         V3["Architecture visible<br/>to all stakeholders"]:::vizz
+        V1 ~~~ V2 ~~~ V3
     end
+
+    enforcement ~~~ llmReady ~~~ scale ~~~ traceBlock ~~~ viz
 ```
 
 <p align="right"><sub><span style="display:inline-block;width:10px;height:10px;background:#DC2626;border-radius:2px;vertical-align:middle"></span> Enforcement &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#D97706;border-radius:2px;vertical-align:middle"></span> LLM-Ready &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#2563EB;border-radius:2px;vertical-align:middle"></span> Scalable &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#059669;border-radius:2px;vertical-align:middle"></span> Traceability &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#7C3AED;border-radius:2px;vertical-align:middle"></span> Communication</sub></p>
@@ -388,58 +396,68 @@ flowchart TB
     classDef consumer fill:#059669,color:#fff,stroke:#047857
     classDef sig fill:#2563EB,color:#fff,stroke:#1D4ED8
 
-    subgraph teamA [Team A]
-        TA_REPO["Git Repo"]:::team
-        TA_SKILL["Skill: Markdown<br/>instruction files"]:::team
-        TA_REPO --> TA_SKILL
+    subgraph teams [Contributing Teams]
+        direction LR
+        subgraph teamA [Team A]
+            direction TB
+            TA_REPO["Git Repo"]:::team
+            TA_SKILL["Skill: Markdown<br/>instruction files"]:::team
+            TA_REPO --> TA_SKILL
+        end
+        subgraph teamB [Team B]
+            direction TB
+            TB_REPO["Git Repo"]:::team
+            TB_SKILL["Skill: Markdown<br/>guidelines +<br/>Python scripts"]:::team
+            TB_REPO --> TB_SKILL
+        end
+        subgraph teamN [Team N ...]
+            direction TB
+            TN_REPO["Git Repo"]:::team
+            TN_SKILL["Skill: Any markdown<br/>+ optional tooling"]:::team
+            TN_REPO --> TN_SKILL
+        end
+        teamA ~~~ teamB ~~~ teamN
     end
 
-    subgraph teamB [Team B]
-        TB_REPO["Git Repo"]:::team
-        TB_SKILL["Skill: Markdown<br/>guidelines +<br/>Python scripts"]:::team
-        TB_REPO --> TB_SKILL
+    subgraph sigReview ["SIG&nbsp;/&nbsp;Working&nbsp;Group&nbsp;—&nbsp;Inner&nbsp;Source&nbsp;Model"]
+        direction LR
+        SIG_PR["PRs reviewed by<br/>cross-team SIG"]:::sig
+        SIG_STD["Contribution standards<br/>enforced"]:::sig
+        SIG_APP["Approved skills<br/>merged & versioned"]:::sig
+        SIG_PR --> SIG_STD --> SIG_APP
     end
 
     subgraph govRepo [Architecture Governance Repo]
-        direction TB
+        direction LR
         SUB["Git Submodules<br/>(pull in external skills)"]:::govrepo
         DISC["Auto-Discovery<br/>(skills registered<br/>by category tag)"]:::govrepo
         SUB --> DISC
     end
 
-    subgraph consumers [Two Governance Consumers]
+    subgraph consumers [Architecture Governance]
         direction LR
-        CG["Code Governance<br/>(original purpose)"]:::consumer
-        AG["Architecture Governance<br/>(reuse of same skills)"]:::consumer
+        EX["Extract Rules<br/>from contributed skills"]:::consumer
+        AG["Apply to Architecture<br/>Governance Pipeline"]:::consumer
+        EX --> AG
     end
 
-    teamA -->|"submodule"| SUB
-    teamB -->|"submodule"| SUB
-    DISC --> consumers
-
-    subgraph sigReview [SIG / Working Group]
-        SIG["Inner Sourcing<br/>Review & Approval"]:::sig
-    end
-
-    teamA -.->|"PR"| sigReview
-    teamB -.->|"PR"| sigReview
-    sigReview -.->|"approved"| SUB
+    teams -->|"PR"| sigReview -->|"approved"| govRepo --> consumers
 ```
 
 <p align="right"><sub><span style="display:inline-block;width:10px;height:10px;background:#7C3AED;border-radius:2px;vertical-align:middle"></span> External Teams &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#D97706;border-radius:2px;vertical-align:middle"></span> Governance Repo &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#059669;border-radius:2px;vertical-align:middle"></span> Consumers &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#2563EB;border-radius:2px;vertical-align:middle"></span> SIG / Working Group</sub></p>
 
 ### Talking Points
 
-- **Already in production:** Other engineering teams have built governance skills in the same model
+- **Already in production:** Other engineering teams have built governance skills (markdown instructions, Python scripts) for their own code governance purposes
 - **Team A:** Created a skill as a set of markdown instruction files in their own git repo -- integrated via git submodules
 - **Team B:** Created a skill with markdown guidelines + Python scripts for code governance -- also integrated via submodules
-- **Cross-boundary reuse:** Both were built for engineer code validation, but their instruction files contain rich context (patterns, guidelines, standards) that we reuse for architecture governance
+- **We extract the rules:** Their skills contain rich patterns, guidelines, and standards -- we pull those rules out and apply them to architecture governance
 - **Same governance model:** All contributions follow Inner Sourcing principles under SIG/Working Group review
-- **Key message:** This is not a greenfield experiment -- teams are already producing, sharing, and executing governance content in markdown + git across organizational boundaries
+- **Key message:** This is not a greenfield experiment -- teams are already producing governance content in markdown + git, and we extract and reuse their rules for architecture validation
 
 ### Speaker Notes
 
-This is powerful proof of adoption. Two teams independently built skills for their own purposes, and we're composing them into architecture governance with zero rework. The submodule model means each team owns their skill in their own repo, pushes updates on their own schedule, and the governance pipeline picks up changes automatically. One set of skills, two governance consumers.
+This is powerful proof of adoption. Two teams independently built skills for code governance, and we extract the rules embedded in those skills -- patterns, standards, guidelines -- and apply them to architecture governance. The submodule model means each team owns their skill in their own repo, pushes updates on their own schedule, and the governance pipeline picks up rule changes automatically. We don't do code governance ourselves -- we leverage the rules others have codified.
 
 ---
 
