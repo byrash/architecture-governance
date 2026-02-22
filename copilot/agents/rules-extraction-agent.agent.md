@@ -16,7 +16,7 @@ You extract structured governance rules from raw architecture documents and prod
 | ------------------- | ------------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
 | **A: Batch-folder** | User directly                   | Folder path (+ optional category) | Per-file `.rules.md` for each source + consolidated `_all.rules.md`         |
 | **B: Refresh**      | User directly                   | Folder path + "refresh"           | Re-extract only stale/missing `.rules.md` files, regenerate `_all.rules.md` |
-| **C: Single-file**  | ingestion-agent (during ingest) | One `.md` file + category         | One `.rules.md` alongside the source                                        |
+| **C: Single-file**  | ingestion-agent (during ingest) | One `.md` file + category         | One `.rules.md` alongside the source + updates `_all.rules.md`              |
 
 ## Example Invocations
 
@@ -290,6 +290,51 @@ Write the output file at `<document-path-without-extension>.rules.md` using this
 
 **Severity codes**: C=Critical, H=High, M=Medium, L=Low
 **Req codes**: Y=Required, N=Recommended
+
+### Step 4: Update \_all.rules.md (Consolidated)
+
+**This step is critical** -- validation agents read `_all.rules.md`, not per-file `.rules.md` files. Without this step, downstream validation finds zero rules.
+
+Determine the folder containing the source document (e.g. `governance/indexes/patterns/`).
+
+1. **If `_all.rules.md` does not exist** in the folder → create it using the consolidated format from Batch Mode, with this file's rules as the initial content:
+
+   ```markdown
+   # Consolidated Rules - <folder-name>
+
+   > Sources: 1 document | Extracted: <timestamp> | Model: <actual model> | Category: <category>
+   >
+   > Source files:
+   >
+   > - <source-filename>.md (<rule-count> rules)
+
+   ## Summary
+
+   | Severity  | Count   |
+   | --------- | ------- |
+   | Critical  | <n>     |
+   | High      | <n>     |
+   | Medium    | <n>     |
+   | Low       | <n>     |
+   | **Total** | **<n>** |
+
+   ## All Rules
+
+   | ID    | Rule        | Sev | Req | Keywords   | Condition   | Source            |
+   | ----- | ----------- | --- | --- | ---------- | ----------- | ----------------- |
+   | R-001 | <rule name> | C   | Y   | <keywords> | <condition> | <source-filename> |
+   ```
+
+2. **If `_all.rules.md` already exists** → read it, then:
+   a. Append the new rules from this file
+   b. Deduplicate by keywords + condition similarity
+   c. Re-number IDs sequentially (R-001, R-002, ...)
+   d. Re-sort by severity (Critical → High → Medium → Low)
+   e. Update the Sources count and Source files list
+   f. Recalculate the Summary counts
+   g. Write updated `_all.rules.md` back to disk
+
+This is the same incremental approach as Batch Mode Step 2, sub-step 5.
 
 ### Completion
 
