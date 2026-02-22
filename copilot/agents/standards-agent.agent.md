@@ -14,9 +14,9 @@ You validate architecture documents against ALL standards documents in the stand
 **CRITICAL**: Announce every action you take. Read the `verbose-logging` skill in `copilot/skills/verbose-logging/SKILL.md` for the `standards-agent` logging templates. Use those templates for all status announcements, replacing `<placeholders>` with actual values.
 
 ## Input/Output
-- **Index**: `governance/indexes/standards/` (ALL .md files)
+- **Index**: `governance/indexes/standards/` (per-page subfolders with `_all.rules.md`)
 - **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
-- **Output**: `governance/output/<PAGE_ID>-standards-report.md`
+- **Output**: `governance/output/<PAGE_ID>/standards-report.md`
 
 ## Skills Used
 
@@ -34,8 +34,9 @@ Build the report on disk as you go -- never accumulate all findings in context.
 
 1. **Read skills** listed in the Skills Used section above
 2. **Read the architecture document** (`page.md`) -- stays in context throughout
-3. **Load rules** from `governance/indexes/standards/` using the `index-query` skill
-4. **Write report shell** to `governance/output/<PAGE_ID>-standards-report.md`:
+3. **Read all `*.ast.json` files** from `governance/output/<PAGE_ID>/attachments/` -- load AST structures for structural rule validation
+4. **Load rules** from `governance/indexes/standards/` using the `index-query` skill (reads `_all.rules.md`)
+5. **Write report shell** to `governance/output/<PAGE_ID>/standards-report.md`:
    - Header with placeholders: `**Score**: _TBD_`, `**Status**: _TBD_`
    - Skills Used table
    - "Standards Checked" table header row (no data rows yet)
@@ -45,7 +46,9 @@ Build the report on disk as you go -- never accumulate all findings in context.
 Process rules in **batches of 50** (or all at once if total rules + page.md < 80K tokens):
 
 1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
-2. Validate each rule against page.md, applying grounding requirements
+2. Validate each rule against page.md and loaded ASTs:
+   - If rule has **Condition**: check text/Mermaid content in page.md
+   - If rule has **AST Condition**: check against loaded AST structures (node IDs, edges, subgraphs, group membership)
 3. **Append finding rows** directly to the Standards Checked table in the report file on disk
 4. Release the batch from context
 5. Repeat until ALL rules processed
@@ -67,7 +70,7 @@ Run any additional Copilot-discovered skills against the document. Append their 
 For EVERY finding in your report:
 
 1. You MUST cite the exact Rule ID (e.g., R-003) from the `.rules.md` file
-2. You MUST quote the specific text or Mermaid block from `page.md` that serves as evidence
+2. You MUST cite evidence: for textual rules, quote the specific text or Mermaid block from `page.md`; for rules with **AST Condition**, cite AST elements (node IDs, edge connections, subgraph/group membership) from the loaded `*.ast.json` structures
 3. If you cannot cite a specific rule ID, the finding is NOT VALID -- do not include it
 4. NEVER report a standard as missing unless you have searched the ENTIRE document
 5. If uncertain whether a standard is addressed, mark as WARN (not ERROR)
@@ -113,7 +116,7 @@ Write the report in this exact format:
 
 | Standard | Rule ID | Source | Origin | Status | Evidence |
 |----------|---------|--------|--------|--------|----------|
-| <standard name> | R-XXX | <index file> | 🏠 / 🔌 | ✅ PASS / ❌ ERROR / ⚠️ WARN | <quote from page.md or "NOT FOUND"> |
+| <standard name> | R-XXX | <index file> | 🏠 / 🔌 | ✅ PASS / ❌ ERROR / ⚠️ WARN | <quote from page.md or AST elements (node IDs, edges, groups) or "NOT FOUND"> |
 
 ## Discovered Skill Findings
 
@@ -209,6 +212,6 @@ After writing the report, announce:
    └── Skills used: <list of discovered skills>
    
    OUTPUT:
-   └── Report: governance/output/<PAGE_ID>-standards-report.md
+   └── Report: governance/output/<PAGE_ID>/standards-report.md
 ═══════════════════════════════════════════════════════════════════
 ```

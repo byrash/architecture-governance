@@ -29,9 +29,10 @@ pip install -r requirements.txt
 # Node.js deps (Mermaid CLI for syntax validation)
 npm install
 
-# System dep: Tesseract OCR (for image pre-extraction)
+# System deps: Tesseract OCR + OpenCV (for CV+OCR AST extraction)
 # macOS: brew install tesseract
 # Ubuntu: sudo apt-get install tesseract-ocr
+# pip install opencv-python-headless pytesseract
 
 # 3. Use agents (venv auto-activates, .env auto-loads)
 
@@ -74,16 +75,16 @@ flowchart TB
     subgraph Ingestion[Ingestion Pipeline]
         IA[ingestion-agent]
         REA[rules-extraction-agent]
-        subgraph Cascade[Deterministic Conversion Cascade]
+        subgraph Cascade[AST-First Conversion Cascade]
             direction TB
-            T1["1. Draw.io XML ✅ deterministic"]
-            T2["2. SVG XML ✅ deterministic"]
+            T1["1. Draw.io XML → AST → Mermaid ✅"]
+            T2["2. SVG XML → AST → Mermaid ✅"]
             T3["3. Mermaid macro ✅ passthrough"]
             T4["4. Markdown macro ✅ passthrough"]
             T5["5. Code/NoFormat ✅ passthrough"]
-            T6["6. PlantUML ✅ deterministic"]
+            T6["6. PlantUML → AST → Mermaid ✅"]
             T7["7. Cache (SHA256) ✅ reuse"]
-            T8["8. Vision + OCR/CV ⚠️ last resort"]
+            T8["8. CV+OCR → partial AST → LLM repair → Mermaid"]
             T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7 --> T8
         end
     end
@@ -96,7 +97,7 @@ flowchart TB
 
     subgraph SkillsPool[Skills - Auto-Discovered by Category]
         direction LR
-        IngSkills["ingestion\nconfluence-ingest\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  validate_mermaid.py\n  preextract_diagram.py\nimage-to-mermaid"]
+        IngSkills["ingestion\nconfluence-ingest\n  diagram_ast.py\n  ast_to_mermaid.py\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  image_to_ast.py\n  validate_mermaid.py\nimage-to-mermaid"]
         PatSkills["patterns\npattern-validate"]
         StdSkills["standards\nstandards-validate"]
         SecSkills["security\nsecurity-validate\n+ external skills"]
@@ -106,7 +107,7 @@ flowchart TB
 
     subgraph Storage
         CONF[(Confluence)]
-        IDX[("Indexes\n*.md sources\n*.rules.md\n_all.rules.md")]
+        IDX[("Indexes\n<PAGE_ID>/page.md\n<PAGE_ID>/rules.md\n<PAGE_ID>/*.ast.json\n_all.rules.md")]
         OUT[(Output)]
         EXT[(External\nSubmodules)]
     end
@@ -159,7 +160,7 @@ Agents auto-discover skills by `category` tag in SKILL.md frontmatter. No agent 
 | Agent | Purpose | Discovers Categories | User-Invokable |
 |-------|---------|---------------------|----------------|
 | **governance-agent** | Orchestrates full validation pipeline | `reporting` | Yes |
-| **ingestion-agent** | Downloads Confluence pages, converts ALL diagrams/images to Mermaid | `ingestion` + `utility` | Yes |
+| **ingestion-agent** | Downloads Confluence pages, converts ALL diagrams to AST IR + Mermaid | `ingestion` + `utility` | Yes |
 | **patterns-agent** | Validates against design patterns | `patterns` + `utility` | Yes |
 | **standards-agent** | Validates against architectural standards | `standards` + `utility` | Yes |
 | **security-agent** | Validates against security controls | `security` + `utility` | Yes |
@@ -190,7 +191,7 @@ Internally triggers:
 
 ### ingestion-agent
 
-Downloads a Confluence page by ID, converts all Draw.io/PlantUML diagrams and images to Mermaid, outputs a clean markdown file, and optionally indexes it. Triggers rules-extraction-agent when indexing.
+Downloads a Confluence page by ID, converts all diagrams to AST JSON IR + Mermaid (via deterministic parsing or CV+OCR with mandatory LLM repair for images), outputs a clean markdown file with per-page artifact folders. Triggers rules-extraction-agent when indexing.
 
 | Task | Prompt |
 |------|--------|
@@ -229,12 +230,12 @@ Extracts structured governance rules from markdown documents into compact `.rule
 
 | Mode | Prompt | What It Does |
 |------|--------|--------------|
-| Batch (full folder) | `@rules-extraction-agent Extract rules from governance/indexes/security/` | Extracts rules from every `.md` in the folder, produces per-file `.rules.md` + consolidated `_all.rules.md` |
+| Batch (full folder) | `@rules-extraction-agent Extract rules from governance/indexes/security/` | Scans `<PAGE_ID>/` subfolders, extracts rules from `page.md` + `*.ast.json`, produces `<PAGE_ID>/rules.md` + consolidated `_all.rules.md` |
 | Batch with category | `@rules-extraction-agent Extract rules from governance/indexes/patterns/ for category patterns` | Same as above, with explicit category |
 | Arbitrary folder | `@rules-extraction-agent Extract rules from /path/to/team-docs/` | Process any folder of markdown files |
 | Refresh (incremental) | `@rules-extraction-agent Refresh rules in governance/indexes/security/` | Only re-extract rules for files that changed since last extraction |
 | Check status (dry run) | `@rules-extraction-agent Check rules status in governance/indexes/security/` | Report which files are stale without re-extracting |
-| Single file | `@rules-extraction-agent Extract rules from governance/indexes/security/123-auth.md for category security` | Extract rules from one file |
+| Single file | `@rules-extraction-agent Extract rules from governance/indexes/security/123456789/page.md for category security` | Extract rules from one page folder |
 
 **Rules staleness check** (CLI, no agent needed):
 
@@ -266,21 +267,21 @@ sequenceDiagram
     User->>IA: Ingest page 123 to patterns
     IA->>Confluence: Download page + attachments
 
-    Note over IA: Deterministic Conversion Cascade
-    IA->>IA: 1. Draw.io XML → Mermaid (deterministic)
-    IA->>IA: 2. SVG XML → Mermaid (deterministic)
+    Note over IA: AST-First Conversion Cascade
+    IA->>IA: 1. Draw.io XML → AST → .ast.json + Mermaid
+    IA->>IA: 2. SVG XML → AST → .ast.json + Mermaid
     IA->>IA: 3. Extract Mermaid macros (passthrough)
     IA->>IA: 4. Extract Markdown macros (passthrough)
     IA->>IA: 5. Extract Code/NoFormat macros (passthrough)
-    IA->>IA: 6. PlantUML → Mermaid (deterministic)
+    IA->>IA: 6. PlantUML → AST → .ast.json + Mermaid
     IA->>IA: 7. Check SHA256 cache
-    IA->>IA: 8. Pre-extract OCR/CV + Vision (last resort)
+    IA->>IA: 8. CV+OCR → partial AST → mandatory LLM repair → Mermaid
 
     Note over IA: Validate all Mermaid via mmdc
-    IA->>IA: Write conversion-manifest.json
-    IA->>Index: Copy page.md to indexes/patterns/
-    IA->>REA: Extract rules from indexed page
-    REA->>Index: Write page.rules.md
+    IA->>IA: Write conversion-manifest.json (with ast_file per diagram)
+    IA->>Index: Copy to indexes/patterns/<PAGE_ID>/ folder
+    IA->>REA: Extract rules from indexed page + AST files
+    REA->>Index: Write <PAGE_ID>/rules.md + _all.rules.md
     REA-->>IA: Rules extracted
     IA-->>User: Indexed + rules extracted
 ```
@@ -309,27 +310,27 @@ sequenceDiagram
     GA->>IA: Ingest page
     IA->>IA: Download from Confluence
     IA->>IA: Deterministic cascade (Draw.io/SVG/macros/PlantUML/cache)
-    IA->>IA: Vision fallback (OCR/CV pre-extract → LLM)
+    IA->>IA: CV+OCR → partial AST → mandatory LLM repair
     IA->>IA: Validate all Mermaid via mmdc
-    IA->>REA: Extract rules from indexed page
-    REA-->>IA: .rules.md written
-    IA-->>GA: page.md ready (no images)
+    IA->>REA: Extract rules from page + AST files
+    REA-->>IA: rules.md written
+    IA-->>GA: page.md ready (AST + Mermaid for all diagrams)
 
     Note over GA,SEA: Step 2: Parallel Validation
     par patterns
         GA->>PA: Validate patterns
-        PA->>PA: Read _all.rules.md or indexes/patterns/*.md
-        PA->>PA: Check document against rules
+        PA->>PA: Read _all.rules.md + AST files
+        PA->>PA: Check rules (text + AST Condition)
         PA-->>GA: patterns-report.md
     and standards
         GA->>SA: Validate standards
-        SA->>SA: Read _all.rules.md or indexes/standards/*.md
-        SA->>SA: Check document against rules
+        SA->>SA: Read _all.rules.md + AST files
+        SA->>SA: Check rules (text + AST Condition)
         SA-->>GA: standards-report.md
     and security
         GA->>SEA: Validate security
-        SEA->>SEA: Read _all.rules.md or indexes/security/*.md
-        SEA->>SEA: Check document against rules
+        SEA->>SEA: Read _all.rules.md + AST files
+        SEA->>SEA: Check rules (text + AST Condition)
         SEA-->>GA: security-report.md
     end
 
@@ -428,7 +429,9 @@ All outputs saved to `governance/output/`:
 | `<PAGE_ID>/page.md` | Clean markdown with ALL diagrams as Mermaid (100% text) |
 | `<PAGE_ID>/metadata.json` | Page metadata from Confluence |
 | `<PAGE_ID>/attachments/` | Original downloaded files |
-| `<PAGE_ID>/conversion-manifest.json` | Per-diagram conversion method, validity, determinism flag |
+| `<PAGE_ID>/attachments/<name>.ast.json` | AST IR per diagram (canonical semantic representation) |
+| `<PAGE_ID>/attachments/<name>.mmd` | Mermaid per diagram (generated from AST) |
+| `<PAGE_ID>/conversion-manifest.json` | Per-diagram: method, ast_file, mermaid_file, validity |
 | `<PAGE_ID>-patterns-report.md` | Pattern validation results |
 | `<PAGE_ID>-standards-report.md` | Standards validation results |
 | `<PAGE_ID>-security-report.md` | Security validation results |
@@ -458,11 +461,13 @@ copilot/                        # Source files (mounted as .github/ in Docker)
     ├── confluence-ingest/      # category: ingestion
     │   ├── SKILL.md
     │   ├── confluence_ingest.py
-    │   ├── drawio_to_mermaid.py
-    │   ├── plantuml_to_mermaid.py
-    │   ├── svg_to_mermaid.py       # SVG XML → Mermaid (deterministic)
-    │   ├── validate_mermaid.py     # mmdc syntax validation
-    │   └── preextract_diagram.py   # OCR/CV context for vision fallback
+    │   ├── diagram_ast.py          # Shared AST schema + Mermaid generator
+    │   ├── ast_to_mermaid.py       # CLI: .ast.json → Mermaid
+    │   ├── drawio_to_mermaid.py    # Draw.io XML → AST → Mermaid
+    │   ├── plantuml_to_mermaid.py  # PlantUML → AST → Mermaid
+    │   ├── svg_to_mermaid.py       # SVG XML → AST → Mermaid
+    │   ├── image_to_ast.py         # CV+OCR → partial AST (needs LLM repair)
+    │   └── validate_mermaid.py     # mmdc syntax validation
     ├── image-to-mermaid/       # category: ingestion
     ├── index-query/            # category: utility
     ├── rules-extract/          # category: utility
@@ -480,19 +485,21 @@ governance/
 ├── external/                   # External skill submodules
 │   └── <name>/                 # Teammate's repo (git submodule)
 │
-├── indexes/                    # Knowledge base
+├── indexes/                    # Knowledge base (per-page folders)
 │   ├── patterns/
-│   │   ├── <PAGE_ID>-<title>.md          # Source document
-│   │   ├── <PAGE_ID>-<title>.rules.md    # Extracted rules per file
-│   │   └── _all.rules.md                 # Consolidated rules (deduplicated)
+│   │   ├── _all.rules.md                 # Consolidated rules (deduplicated)
+│   │   └── <PAGE_ID>/                    # Per-page artifact folder
+│   │       ├── page.md                   # Source document with inline Mermaid
+│   │       ├── metadata.json             # Page metadata
+│   │       ├── rules.md                  # Extracted rules (with AST Condition)
+│   │       ├── <name>.ast.json           # AST IR per diagram
+│   │       └── <name>.mmd               # Mermaid per diagram
 │   ├── standards/
-│   │   ├── <PAGE_ID>-<title>.md
-│   │   ├── <PAGE_ID>-<title>.rules.md
-│   │   └── _all.rules.md
+│   │   ├── _all.rules.md
+│   │   └── <PAGE_ID>/ ...
 │   └── security/
-│       ├── <PAGE_ID>-<title>.md
-│       ├── <PAGE_ID>-<title>.rules.md
-│       └── _all.rules.md
+│       ├── _all.rules.md
+│       └── <PAGE_ID>/ ...
 │
 └── output/                     # Generated outputs
     ├── .cache/                 # SHA256-keyed conversion cache
@@ -502,8 +509,10 @@ governance/
     ├── <PAGE_ID>/              # Page folder
     │   ├── page.md
     │   ├── metadata.json
-    │   ├── conversion-manifest.json  # Per-diagram: method, valid, deterministic
+    │   ├── conversion-manifest.json  # Per-diagram: method, ast_file, valid
     │   └── attachments/
+    │       ├── <name>.ast.json       # AST IR per diagram
+    │       └── <name>.mmd           # Mermaid per diagram
     └── <PAGE_ID>-*-report.md   # Validation reports
 ```
 

@@ -327,8 +327,8 @@ def extract_inline_svgs(html_content: str, download_dir: Path) -> Tuple[str, Dic
     return str(soup), svg_map
 
 
-def convert_svg_to_mermaid_file(svg_path: Path) -> Optional[str]:
-    """Convert an SVG file to Mermaid using the local svg_to_mermaid script."""
+def convert_svg_to_mermaid_file(svg_path: Path, ast_output: Optional[str] = None) -> Optional[str]:
+    """Convert an SVG file to Mermaid (via AST IR). Optionally writes .ast.json."""
     script_dir = Path(__file__).parent
     script_paths = [
         script_dir / 'svg_to_mermaid.py',
@@ -344,19 +344,22 @@ def convert_svg_to_mermaid_file(svg_path: Path) -> Optional[str]:
     if not script_path:
         return None
 
+    cmd = [sys.executable, str(script_path), '--input', str(svg_path)]
+    if ast_output:
+        cmd.extend(['--ast-output', ast_output])
+
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path), '--input', str(svg_path)],
-            capture_output=True, text=True, check=True, timeout=30
+            cmd, capture_output=True, text=True, check=True, timeout=30
         )
         if result.stdout and result.stdout.strip():
             return result.stdout.strip()
     except subprocess.CalledProcessError:
         pass
     except subprocess.TimeoutExpired:
-        print(f"  ✗ SVG conversion timed out for {svg_path.name}", file=sys.stderr)
+        print(f"  Error: SVG conversion timed out for {svg_path.name}", file=sys.stderr)
     except Exception as e:
-        print(f"  ✗ SVG conversion error: {e}", file=sys.stderr)
+        print(f"  Error: SVG conversion: {e}", file=sys.stderr)
 
     return None
 
@@ -432,12 +435,12 @@ def store_cache(file_hash: str, mermaid_code: str, source_name: str,
     meta_path.write_text(json.dumps(meta, indent=2), encoding='utf-8')
 
 
-def run_preextract(image_path: Path) -> Optional[dict]:
-    """Run pre-extraction on an image file, returning the context dict."""
+def run_image_to_ast(image_path: Path) -> Optional[str]:
+    """Run CV+OCR AST extraction on an image, returning the .ast.json path."""
     script_dir = Path(__file__).parent
     script_paths = [
-        script_dir / 'preextract_diagram.py',
-        Path('copilot/skills/confluence-ingest/preextract_diagram.py'),
+        script_dir / 'image_to_ast.py',
+        Path('copilot/skills/confluence-ingest/image_to_ast.py'),
     ]
 
     script_path = None
@@ -449,18 +452,18 @@ def run_preextract(image_path: Path) -> Optional[dict]:
     if not script_path:
         return None
 
-    context_path = f"{image_path}.context.json"
+    stem = image_path.stem
+    ast_path = str(image_path.parent / f"{stem}.partial.ast.json")
     try:
         subprocess.run(
             [sys.executable, str(script_path), '--input', str(image_path),
-             '--output', context_path],
-            capture_output=True, text=True, timeout=60
+             '--output', ast_path],
+            capture_output=True, text=True, timeout=120
         )
-        if Path(context_path).exists():
-            with open(context_path, 'r') as f:
-                return json.load(f)
+        if Path(ast_path).exists():
+            return ast_path
     except Exception as e:
-        print(f"  ⚠ Pre-extraction failed for {image_path.name}: {e}", file=sys.stderr)
+        print(f"  Warning: AST extraction failed for {image_path.name}: {e}", file=sys.stderr)
 
     return None
 
@@ -918,51 +921,46 @@ def convert_html_to_markdown(html_content: str, attachment_map: Dict[str, str]) 
     return md_content.strip()
 
 
-def convert_drawio_to_mermaid(drawio_path: Path) -> Optional[str]:
-    """Convert a Draw.io file to Mermaid using the local drawio_to_mermaid script."""
-    # Try to find the conversion script - check multiple possible locations
+def convert_drawio_to_mermaid(drawio_path: Path, ast_output: Optional[str] = None) -> Optional[str]:
+    """Convert a Draw.io file to Mermaid (via AST IR). Optionally writes .ast.json."""
     script_dir = Path(__file__).parent
     workspace_root = Path.cwd()
-    
+
     script_paths = [
-        script_dir / 'drawio_to_mermaid.py',  # Same directory as this script
-        Path('.github/skills/confluence-ingest/drawio_to_mermaid.py'),
+        script_dir / 'drawio_to_mermaid.py',
         Path('copilot/skills/confluence-ingest/drawio_to_mermaid.py'),
-        Path('governance/scripts/drawio_to_mermaid.py'),  # Legacy path
-        workspace_root / '.github/skills/confluence-ingest/drawio_to_mermaid.py',
         workspace_root / 'copilot/skills/confluence-ingest/drawio_to_mermaid.py',
     ]
-    
+
     script_path = None
     for p in script_paths:
         if p.exists():
             script_path = p
-            print(f"  📍 Using conversion script: {script_path}", file=sys.stderr)
             break
-    
+
     if not script_path:
-        print("  ⚠ drawio_to_mermaid.py script not found in any of these locations:", file=sys.stderr)
-        for p in script_paths[:4]:
-            print(f"     - {p}", file=sys.stderr)
+        print("  Warning: drawio_to_mermaid.py not found", file=sys.stderr)
         return None
-    
+
+    cmd = [sys.executable, str(script_path), '--input', str(drawio_path)]
+    if ast_output:
+        cmd.extend(['--ast-output', ast_output])
+
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path), '--input', str(drawio_path)],
-            capture_output=True, text=True, check=True,
-            timeout=30  # Add timeout to prevent hanging
+            cmd, capture_output=True, text=True, check=True, timeout=30
         )
         if result.stdout:
             return result.stdout.strip()
         else:
-            print(f"  ⚠ No output from conversion script", file=sys.stderr)
+            print(f"  Warning: No output from drawio conversion", file=sys.stderr)
     except subprocess.TimeoutExpired:
-        print(f"  ✗ Conversion timed out after 30 seconds", file=sys.stderr)
+        print(f"  Error: drawio conversion timed out", file=sys.stderr)
     except subprocess.CalledProcessError as e:
-        print(f"  ✗ Conversion failed: {e.stderr}", file=sys.stderr)
+        print(f"  Error: drawio conversion failed: {e.stderr}", file=sys.stderr)
     except Exception as e:
-        print(f"  ✗ Error: {e}", file=sys.stderr)
-    
+        print(f"  Error: {e}", file=sys.stderr)
+
     return None
 
 
@@ -1284,17 +1282,22 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                     continue
 
                 print(f"   📄 {drawio_file} → parsing XML...", file=sys.stderr)
-                mermaid_code = convert_drawio_to_mermaid(drawio_path)
+                stem = os.path.splitext(drawio_file)[0]
+                ast_path = str(download_dir / f"{stem}.ast.json")
+                mermaid_code = convert_drawio_to_mermaid(drawio_path, ast_output=ast_path)
 
                 if mermaid_code and "No diagram data extracted" not in mermaid_code:
                     is_valid, val_error = validate_mermaid_code(mermaid_code)
-                    # Always inline -- agent will fix syntax errors if validation failed
                     diagram_mermaid_map[drawio_file] = mermaid_code
                     png_name = os.path.splitext(drawio_file)[0] + '.png'
                     diagram_mermaid_map[png_name] = mermaid_code
+
+                    mmd_path = str(download_dir / f"{stem}.mmd")
+                    Path(mmd_path).write_text(mermaid_code, encoding='utf-8')
+
                     if is_valid:
                         store_cache(file_hash, mermaid_code, drawio_file, 'drawio_xml', output_dir)
-                        print(f"   ✅ {drawio_file} → Mermaid (validated)", file=sys.stderr)
+                        print(f"   ✅ {drawio_file} → AST + Mermaid (validated)", file=sys.stderr)
                     else:
                         print(f"   ⚠ FIX NEEDED: {drawio_file} → Mermaid syntax error: {val_error}", file=sys.stderr)
                     conversion_manifest.append({
@@ -1302,6 +1305,8 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                         'deterministic': True, 'valid': is_valid,
                         'needs_fix': not is_valid,
                         'cache_hit': False, 'cache_key': file_hash,
+                        'ast_file': f"{stem}.ast.json",
+                        'mermaid_file': f"{stem}.mmd",
                         **(({'error': val_error} if not is_valid else {})),
                     })
                 else:
@@ -1343,15 +1348,20 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                     continue
 
                 print(f"   📄 {svg_file} → parsing SVG XML...", file=sys.stderr)
-                mermaid_code = convert_svg_to_mermaid_file(svg_path)
+                stem = os.path.splitext(svg_file)[0]
+                ast_path = str(download_dir / f"{stem}.ast.json")
+                mermaid_code = convert_svg_to_mermaid_file(svg_path, ast_output=ast_path)
 
                 if mermaid_code:
                     is_valid, val_error = validate_mermaid_code(mermaid_code)
-                    # Always inline -- agent will fix syntax errors if validation failed
                     diagram_mermaid_map[svg_file] = mermaid_code
+
+                    mmd_path = str(download_dir / f"{stem}.mmd")
+                    Path(mmd_path).write_text(mermaid_code, encoding='utf-8')
+
                     if is_valid:
                         store_cache(file_hash, mermaid_code, svg_file, 'svg_xml', output_dir)
-                        print(f"   ✅ {svg_file} → Mermaid (validated)", file=sys.stderr)
+                        print(f"   ✅ {svg_file} → AST + Mermaid (validated)", file=sys.stderr)
                     else:
                         print(f"   ⚠ FIX NEEDED: {svg_file} → Mermaid syntax error: {val_error}", file=sys.stderr)
                     conversion_manifest.append({
@@ -1359,6 +1369,8 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                         'deterministic': True, 'valid': is_valid,
                         'needs_fix': not is_valid,
                         'cache_hit': False, 'cache_key': file_hash,
+                        'ast_file': f"{stem}.ast.json",
+                        'mermaid_file': f"{stem}.mmd",
                         **(({'error': val_error} if not is_valid else {})),
                     })
                 else:
@@ -1379,20 +1391,18 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         print(f"\n🔄 Replacing {unique_count} diagram reference(s) with Mermaid...", file=sys.stderr)
         md_content = inline_mermaid_diagrams(md_content, diagram_mermaid_map)
 
-    # Phase 3: Pre-extract context for remaining images (for agent vision fallback)
+    # Phase 3: Run CV+OCR AST extraction for remaining images (LLM repair done by agent)
     remaining_image_refs = re.findall(r'!\[[^\]]*\]\(([^)]*\.(png|jpg|jpeg|gif|svg))\)', md_content)
-    preextract_results = {}
+    image_ast_results = {}
     if remaining_image_refs:
-        print(f"\n🔍 PRE-EXTRACTING context for {len(remaining_image_refs)} remaining image(s)...", file=sys.stderr)
+        print(f"\n🔍 CV+OCR AST extraction for {len(remaining_image_refs)} remaining image(s)...", file=sys.stderr)
         for img_path, ext in remaining_image_refs:
             full_path = page_dir / img_path
-            if full_path.exists():
-                context = run_preextract(full_path)
-                if context:
-                    preextract_results[img_path] = context
-                    label_count = len(context.get('ocr_labels', []))
-                    color_count = len(context.get('colors', []))
-                    print(f"   ✓ {img_path}: {label_count} labels, {color_count} colors extracted", file=sys.stderr)
+            if full_path.exists() and ext.lower() in ('png', 'jpg', 'jpeg', 'gif'):
+                ast_path = run_image_to_ast(full_path)
+                if ast_path:
+                    image_ast_results[img_path] = ast_path
+                    print(f"   ✓ {img_path} → partial AST (needs mandatory LLM repair)", file=sys.stderr)
 
     # Save final Markdown to page folder
     final_md_path = page_dir / "page.md"
@@ -1411,17 +1421,18 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     # --- Layer 5: Generate conversion manifest ---
     remaining_images = len(remaining_image_refs)
     for img_path, ext in remaining_image_refs:
+        stem = os.path.splitext(img_path.split('/')[-1])[0]
         entry = {
             'source': img_path.split('/')[-1],
-            'method': 'vision_llm',
+            'method': 'cv_tesseract_plus_llm_repair',
             'deterministic': False,
             'valid': None,
-            'manual_review': True,
+            'needs_llm_repair': True,
         }
-        if img_path in preextract_results:
-            ctx = preextract_results[img_path]
-            entry['preextract'] = f"{Path(img_path).name}.context.json"
-            entry['ocr_labels'] = ctx.get('ocr_labels', [])
+        if img_path in image_ast_results:
+            entry['partial_ast_file'] = f"{stem}.partial.ast.json"
+            entry['ast_file'] = f"{stem}.ast.json"
+            entry['mermaid_file'] = f"{stem}.mmd"
         conversion_manifest.append(entry)
 
     deterministic_count = sum(1 for e in conversion_manifest if e.get('deterministic'))
@@ -1481,20 +1492,14 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
             print(f"      → {entry['source']}: {entry.get('error', 'unknown error')}", file=sys.stderr)
 
     if remaining_images > 0:
-        print(f"\n   🖼️  IMAGES NEED VISION: {remaining_images} image(s) (non-deterministic)", file=sys.stderr)
+        print(f"\n   🖼️  IMAGES NEED LLM REPAIR: {remaining_images} image(s)", file=sys.stderr)
         for img_path, ext in remaining_image_refs:
-            ctx = preextract_results.get(img_path, {})
-            labels = ctx.get('ocr_labels', [])
-            label_info = f" ({len(labels)} OCR labels pre-extracted)" if labels else ""
-            print(f"      → {img_path}{label_info}", file=sys.stderr)
-        print(f"\n   ⚠️  MANUAL REVIEW NEEDED for vision-converted diagrams", file=sys.stderr)
-        print(f"\n   💡 To make deterministic, upload .drawio or .svg source files:", file=sys.stderr)
-        for img_path, ext in remaining_image_refs:
-            base = os.path.splitext(img_path.split('/')[-1])[0]
-            print(f"      {img_path} → upload {base}.drawio or {base}.svg", file=sys.stderr)
-        print(f"\n   📋 Agent: Run preextract_diagram.py first, then convert with vision", file=sys.stderr)
+            has_ast = "partial AST ready" if img_path in image_ast_results else "no AST"
+            print(f"      → {img_path} ({has_ast})", file=sys.stderr)
+        print(f"\n   📋 Agent: Run mandatory LLM repair on partial ASTs, then generate Mermaid from final AST", file=sys.stderr)
+        print(f"\n   💡 To make fully deterministic, upload .drawio or .svg source files", file=sys.stderr)
     else:
-        print(f"\n   ✅ All diagrams converted deterministically - no vision needed", file=sys.stderr)
+        print(f"\n   ✅ All diagrams converted deterministically - no LLM needed", file=sys.stderr)
 
     return {
         'metadata': metadata,

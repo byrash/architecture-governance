@@ -2,9 +2,9 @@
 """
 Rules Staleness Checker
 
-Compares source .md files against their .rules.md derivatives to detect
-which files need rules re-extraction. Uses both file modification times
-and content fingerprints (MD5 of first 64KB) for reliable change detection.
+Compares source page.md files against their rules.md derivatives in
+<PAGE_ID>/ subfolders. Uses both file modification times and content
+fingerprints (MD5 of first 64KB) for reliable change detection.
 
 Usage:
     python rules_check.py --folder governance/indexes/security/
@@ -73,7 +73,12 @@ def extract_stored_fingerprint(rules_path: str) -> str:
 
 
 def check_folder(folder: str) -> List[FileStatus]:
-    """Check all .md files in a folder for rules staleness."""
+    """Check all page.md files in <PAGE_ID>/ subfolders for rules staleness.
+
+    Per-page folder layout:
+        <folder>/<PAGE_ID>/page.md   -- source
+        <folder>/<PAGE_ID>/rules.md  -- derived
+    """
     folder_path = Path(folder)
     if not folder_path.is_dir():
         print(f"Error: {folder} is not a directory", file=sys.stderr)
@@ -81,49 +86,53 @@ def check_folder(folder: str) -> List[FileStatus]:
 
     results: List[FileStatus] = []
 
-    # Find all .md files (excluding .rules.md)
-    md_files = sorted([
-        f for f in folder_path.glob('*.md')
-        if not f.name.endswith('.rules.md')
-        and f.name != '_all.rules.md'
+    # Find all <PAGE_ID>/ subfolders
+    subfolders = sorted([
+        d for d in folder_path.iterdir()
+        if d.is_dir() and not d.name.startswith('.')
     ])
 
-    # Find all .rules.md files
-    rules_files = {
-        f.stem.replace('.rules', ''): f
-        for f in folder_path.glob('*.rules.md')
-        if f.name != '_all.rules.md'
-    }
+    for subdir in subfolders:
+        page_id = subdir.name
+        page_md = subdir / 'page.md'
+        rules_md = subdir / 'rules.md'
 
-    for md_file in md_files:
-        base_name = md_file.stem
-        rules_file = rules_files.pop(base_name, None)
+        if not page_md.exists():
+            # No page.md - check for orphan rules.md
+            if rules_md.exists():
+                results.append(FileStatus(
+                    source=f'{folder}/{page_id}/page.md (DELETED)',
+                    rules_file=str(rules_md),
+                    status='orphan',
+                    reason='Source page.md was deleted but rules.md remains',
+                    rules_mtime=rules_md.stat().st_mtime,
+                ))
+            # else: empty folder, skip
+            continue
 
-        source_mtime = md_file.stat().st_mtime
-        source_fp = compute_fingerprint(str(md_file))
+        source_mtime = page_md.stat().st_mtime
+        source_fp = compute_fingerprint(str(page_md))
 
-        if rules_file is None:
-            # No .rules.md exists
+        if not rules_md.exists():
             results.append(FileStatus(
-                source=str(md_file),
+                source=str(page_md),
                 rules_file=None,
                 status='missing',
-                reason='No .rules.md file exists',
+                reason='No rules.md file exists in subfolder',
                 source_mtime=source_mtime,
                 source_fingerprint=source_fp,
             ))
             continue
 
-        rules_mtime = rules_file.stat().st_mtime
-        stored_fp = extract_stored_fingerprint(str(rules_file))
+        rules_mtime = rules_md.stat().st_mtime
+        stored_fp = extract_stored_fingerprint(str(rules_md))
 
         # Check staleness
         if source_fp and stored_fp:
-            # Fingerprint comparison (most reliable)
             if source_fp != stored_fp:
                 results.append(FileStatus(
-                    source=str(md_file),
-                    rules_file=str(rules_file),
+                    source=str(page_md),
+                    rules_file=str(rules_md),
                     status='stale',
                     reason=f'Content changed (fingerprint {stored_fp} → {source_fp})',
                     source_mtime=source_mtime,
@@ -133,8 +142,8 @@ def check_folder(folder: str) -> List[FileStatus]:
                 ))
             else:
                 results.append(FileStatus(
-                    source=str(md_file),
-                    rules_file=str(rules_file),
+                    source=str(page_md),
+                    rules_file=str(rules_md),
                     status='current',
                     reason='Fingerprint matches',
                     source_mtime=source_mtime,
@@ -143,36 +152,25 @@ def check_folder(folder: str) -> List[FileStatus]:
                     rules_fingerprint=stored_fp,
                 ))
         elif source_mtime > rules_mtime:
-            # Fall back to mtime comparison
             results.append(FileStatus(
-                source=str(md_file),
-                rules_file=str(rules_file),
+                source=str(page_md),
+                rules_file=str(rules_md),
                 status='stale',
-                reason=f'Source newer than rules (no fingerprint to compare)',
+                reason='Source newer than rules (no fingerprint to compare)',
                 source_mtime=source_mtime,
                 rules_mtime=rules_mtime,
                 source_fingerprint=source_fp,
             ))
         else:
             results.append(FileStatus(
-                source=str(md_file),
-                rules_file=str(rules_file),
+                source=str(page_md),
+                rules_file=str(rules_md),
                 status='current',
                 reason='Rules file is newer than source',
                 source_mtime=source_mtime,
                 rules_mtime=rules_mtime,
                 source_fingerprint=source_fp,
             ))
-
-    # Orphaned .rules.md files (no matching .md source)
-    for orphan_name, orphan_file in rules_files.items():
-        results.append(FileStatus(
-            source=f'{folder}/{orphan_name}.md (DELETED)',
-            rules_file=str(orphan_file),
-            status='orphan',
-            reason='Source .md was deleted but .rules.md remains',
-            rules_mtime=orphan_file.stat().st_mtime,
-        ))
 
     # Check _all.rules.md freshness
     all_rules = folder_path / '_all.rules.md'
@@ -188,11 +186,11 @@ def check_folder(folder: str) -> List[FileStatus]:
                 source='(all source files)',
                 rules_file=str(all_rules),
                 status='stale',
-                reason='Per-file rules changed; consolidated file needs regeneration',
+                reason='Per-page rules changed; consolidated file needs regeneration',
                 rules_mtime=all_mtime,
             ))
     else:
-        if md_files:
+        if subfolders:
             results.append(FileStatus(
                 source='(all source files)',
                 rules_file=str(folder_path / '_all.rules.md'),
@@ -265,7 +263,7 @@ def print_results(results: List[FileStatus], folder: str, as_json: bool = False,
 
     if fix and (stale or missing):
         stale_files = [
-            Path(r.source).name
+            Path(r.source).parent.name  # PAGE_ID from <folder>/<PAGE_ID>/page.md
             for r in stale + missing
             if '(all' not in r.source and '(DELETED)' not in r.source
         ]
@@ -309,7 +307,7 @@ def main():
 
     results = check_folder(args.folder)
     if not results:
-        print(f"No .md files found in {args.folder}")
+        print(f"No <PAGE_ID>/page.md files found in {args.folder}")
         sys.exit(0)
 
     print_results(results, args.folder, as_json=args.json, fix=args.fix)

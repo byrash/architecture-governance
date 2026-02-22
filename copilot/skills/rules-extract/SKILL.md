@@ -12,24 +12,24 @@ Extract structured governance rules from raw architecture documents and save as 
 
 ### Single-file mode
 
-- **Document path**: `governance/indexes/<category>/<filename>.md` (provided by caller)
+- **Document path**: `governance/indexes/<category>/<PAGE_ID>/page.md` (provided by caller)
 - **Category**: `patterns`, `standards`, `security`, or `general` (provided by caller)
 
 ### Batch-folder mode
 
-- **Folder path**: any directory containing `.md` files
+- **Folder path**: any index directory containing `<PAGE_ID>/` subfolders with `page.md` files
 - **Category**: auto-detected from folder name or specified by caller
-- Process ALL `.md` files in the folder (excluding existing `.rules.md` files)
+- Process ALL `page.md` files in subfolders
 
 ## Output
 
 ### Single-file mode
 
-Write to `<filename>.rules.md` alongside the source (same directory, `.rules.md` extension).
+Write to `<PAGE_ID>/rules.md` inside the index (same subfolder as `page.md`).
 
 ### Batch-folder mode
 
-1. **Per-file**: `<filename>.rules.md` for each source `.md` file
+1. **Per-page**: `<PAGE_ID>/rules.md` for each source `page.md` in subfolders
 2. **Consolidated**: `_all.rules.md` in the folder root -- merged, deduplicated, sorted by severity
 
 ## What to Extract
@@ -118,14 +118,16 @@ Extract these rules:
 
 ## Output Format
 
+Rules are written to `<PAGE_ID>/rules.md` inside the index. Rules now include an **AST Condition** column when structural conditions are extracted from `*.ast.json` files (nodes, edges, groups).
+
 ```markdown
 # Rules - <source-filename>
 
 > Source: <path> | Extracted: <timestamp> | Model: <actual model> | Category: <category> | Fingerprint: <md5-first-12-chars>
 
-| ID | Rule | Sev | Req | Keywords | Condition |
-|----|------|-----|-----|----------|-----------|
-| R-001 | <rule name> | C/H/M/L | Y/N | <comma-separated keywords> | <one-line condition> |
+| ID | Rule | Sev | Req | Keywords | Condition | AST Condition |
+|----|------|-----|-----|----------|-----------|---------------|
+| R-001 | <rule name> | C/H/M/L | Y/N | <comma-separated keywords> | <one-line condition> | <ast constraint or - > |
 
 ## Probe Questions
 
@@ -164,12 +166,13 @@ Rules:
 - **Req**: Y=Required, N=Recommended
 - **Keywords**: Comma-separated, lowercase, for quick matching
 - **Condition**: One-line description of what must be true
+- **AST Condition**: (optional) Structural constraint from `*.ast.json` (e.g., "node:X in group:Y", "edge:A->B exists")
 
 ## Consolidation (Incremental -- after each file)
 
 When processing multiple files, merge into `_all.rules.md` **immediately after each per-file extraction** rather than reading all files at the end. This keeps context usage bounded as indexes grow.
 
-**After extracting each `<filename>.rules.md`:**
+**After extracting each `<PAGE_ID>/rules.md`:**
 
 1. If `_all.rules.md` does not exist → create it with this file's rules as initial content
 2. If `_all.rules.md` exists → read it, then:
@@ -187,9 +190,9 @@ When processing multiple files, merge into `_all.rules.md` **immediately after e
 ### Consolidated output adds a `Source` column
 
 ```markdown
-| ID | Rule | Sev | Req | Keywords | Condition | Source |
-|----|------|-----|-----|----------|-----------|--------|
-| R-001 | External vendor isolation | C | Y | vendor,gateway | Must route through gateway | auth-standards.md, api-guidelines.md |
+| ID | Rule | Sev | Req | Keywords | Condition | AST Condition | Source |
+|----|------|-----|-----|----------|-----------|---------------|--------|
+| R-001 | External vendor isolation | C | Y | vendor,gateway | Must route through gateway | - | 12345/rules.md, 67890/rules.md |
 ```
 
 ### Cross-document patterns section
@@ -211,6 +214,6 @@ These cross-document patterns are the highest-confidence rules and should be pri
 
 - Extract ALL rules, not just obvious ones -- diagrams often contain implicit rules
 - Keep the table compact -- every token saved here saves tokens across every future validation run
-- Preserve the raw `.md` files unchanged -- `.rules.md` files are derived artifacts
+- Preserve the raw `page.md` files unchanged -- `rules.md` files are derived artifacts
 - If a document has no extractable rules, write a `.rules.md` with an empty table and a note
 - In batch mode, continue processing remaining files if one file fails

@@ -11,13 +11,14 @@ Validate architecture document against all design pattern documents in the index
 ## Inputs
 
 1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
-2. **Index**: `governance/indexes/patterns/` (ALL .md files)
+2. **Index**: `governance/indexes/patterns/` (rules and per-page content)
+3. **AST files**: `governance/output/<PAGE_ID>/*.ast.json` — diagram structure (nodes, edges, groups)
 
 ## Instructions
 
-1. Read ALL .md files from `governance/indexes/patterns/`
-2. Read the architecture document
-3. For each pattern found in the index files, analyze if the document addresses it:
+1. Read rules from `governance/indexes/patterns/` (per index-query: `_all.rules.md` > `<PAGE_ID>/rules.md` > `<PAGE_ID>/page.md`)
+2. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/`
+3. For each pattern found in the index, analyze if the document addresses it:
    - **Required patterns**: Must be present → PASS/FAIL
    - **Recommended patterns**: Nice to have → PASS/WARN
    - **Anti-patterns**: Must NOT be present → PASS/FAIL
@@ -27,55 +28,42 @@ Validate architecture document against all design pattern documents in the index
 
 For each pattern found in index files:
 - Search the document **text sections** for evidence of the pattern
-- Search **Mermaid diagram code blocks** for architectural evidence (see below)
+- Use **AST-based structural validation** (see below) when `*.ast.json` files exist
 - Look for keywords, descriptions, and structural patterns
 - Determine if pattern is implemented or just mentioned
 
-### Interpreting Mermaid Diagrams as Evidence
+### AST-Based Structural Validation
 
-The document may contain `\`\`\`mermaid` code blocks representing architecture diagrams. These are **first-class evidence** -- treat them with the same weight as written text.
+When `governance/output/<PAGE_ID>/*.ast.json` files exist, use them for structural evidence. The AST provides canonical `nodes`, `edges`, and `groups` — cite these elements in evidence.
 
-**How to extract pattern evidence from Mermaid:**
+**How to extract pattern evidence from AST:**
 
-| Mermaid Element | What to Check | Pattern Evidence |
-|-----------------|---------------|------------------|
-| Node names and shapes | Component types | Service names imply patterns (e.g., `Gateway` = API Gateway pattern, `Queue` = async messaging) |
-| Edge labels (`-->\|REST\|`, `-->\|gRPC\|`) | Communication patterns | Synchronous vs asynchronous, protocol choices |
-| Subgraph boundaries (`subgraph Frontend`, `subgraph Backend`) | Layered architecture | Tier separation, bounded contexts, domain boundaries |
-| Fan-out edges (one node to many) | Distribution patterns | Load balancing, pub/sub, event-driven |
-| Bidirectional edges (`A <--> B`) | Coupling patterns | Tight coupling vs loose coupling |
-| Intermediate nodes (A --> B --> C) | Mediation patterns | Proxy, adapter, facade, gateway patterns |
-| Isolated subgraphs (no cross-links) | Isolation patterns | Microservice independence, bounded context isolation |
-| Database nodes (`[(DB)]`, `[( )]`) | Data patterns | Shared database, database-per-service, CQRS |
+| AST Element | What to Check | Pattern Evidence |
+|-------------|---------------|------------------|
+| `ast.nodes` | Node ids, labels, shapes | Component types (e.g., node label "Gateway" = API Gateway pattern, "Queue" = async messaging) |
+| `ast.edges` | source → target, label | Communication patterns, protocol choices (REST, gRPC in edge label) |
+| `ast.groups` | group id, label, children | Layered architecture, tier separation, bounded contexts |
+| Fan-out edges (one source, many targets) | Distribution patterns | Load balancing, pub/sub, event-driven |
+| Edge direction (A→B but not B→A) | Mediation patterns | Proxy, adapter, gateway patterns |
+| Group membership (node in group) | Isolation patterns | Microservice independence, domain boundaries |
+| Node shape in AST | Data patterns | Database, queue, service types |
 
-**Example -- matching a pattern rule against a diagram:**
+**Example — matching a pattern rule against AST:**
 
 Rule: *"API Gateway pattern required"*
 Keywords: `gateway, api, routing, entry point`
 
-```mermaid
-flowchart TB
-    Client --> GW[API Gateway]
-    GW --> ServiceA
-    GW --> ServiceB
-    GW --> ServiceC
-```
+AST excerpt: `nodes: [{id: "GW", label: "API Gateway", ...}], edges: [{source: "Client", target: "GW"}, {source: "GW", target: "ServiceA"}, ...]`
 
-Evidence: `GW[API Gateway]` node exists with `Client --> GW` as single entry point and fan-out to services. **Status: PASS**
+Evidence: Node `GW` (label "API Gateway") exists. Edge `Client→GW` as single entry, edges `GW→ServiceA`, `GW→ServiceB` show fan-out. **Cite**: `ast.nodes[GW]`, `ast.edges[Client→GW]`. **Status: PASS**
 
 **Anti-pattern example:**
 
 Anti-pattern: *"No direct client-to-service calls"*
 
-```mermaid
-flowchart TB
-    Client --> ServiceA
-    Client --> ServiceB
-```
+Evidence: Edges `Client→ServiceA`, `Client→ServiceB` in `ast.edges` bypass gateway. **Cite**: `ast.edges` entries. **Status: FAIL (anti-pattern detected)**
 
-Evidence: `Client --> ServiceA` and `Client --> ServiceB` show direct calls bypassing gateway. **Status: FAIL (anti-pattern detected)**
-
-**Important**: If a rule's keywords appear in Mermaid node names, edge labels, or subgraph titles, that is valid evidence. Cite the specific Mermaid line(s) in your report's Evidence column.
+**Important**: Cite specific AST elements in your report's Evidence column (e.g., `node:GW in group:Internal`, `edge:Client→Gateway`).
 
 ## Scoring
 

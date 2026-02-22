@@ -41,7 +41,7 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 | Mode           | When              | Output                                                    |
 | -------------- | ----------------- | --------------------------------------------------------- |
 | **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only                |
-| **Ingest**     | index provided    | Also copies to `governance/indexes/<index>/<filename>.md` |
+| **Ingest**     | index provided    | Also copies to `governance/indexes/<index>/<PAGE_ID>/` (page.md, metadata.json, *.ast.json, *.mmd) |
 
 ## Example Invocations
 
@@ -117,7 +117,7 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 This agent uses the following skills (discovered automatically by Copilot from `copilot/skills/`):
 
 - **confluence-ingest** -- download and convert Confluence pages to markdown (Draw.io, SVG, Markdown/Mermaid macros, PlantUML -- all deterministic; caching; validation)
-- **image-to-mermaid** -- convert remaining diagram images to Mermaid via vision (with optional pre-extraction for better accuracy)
+- **image-to-mermaid** -- convert remaining diagram images to Mermaid via AST-first pipeline (LLM repair mandatory)
 - **verbose-logging** -- step progress announcement templates
 
 ## Detailed Steps
@@ -137,9 +137,6 @@ pip install -r requirements.txt
 # Node.js deps (Mermaid CLI for syntax validation)
 npm install
 
-# System dep: Tesseract OCR (for image pre-extraction)
-# macOS: brew install tesseract
-# Ubuntu: sudo apt-get install tesseract-ocr
 ```
 
 If `package.json` exists at workspace root and `node_modules/` does not, run `npm install` before proceeding.
@@ -290,25 +287,43 @@ After completing content traversal (Step 3), check document size and log warning
 
 **NEXT → Step 4** (convert images)
 
-### Step 4: Convert Remaining Images to Mermaid
-
-**Use skill**: `image-to-mermaid`
+### Step 4: Convert Remaining Images to Mermaid (AST-First Pipeline)
 
 Draw.io and SVG diagrams are already converted by the script via XML parsing.
 
-Check the script output for remaining images that need vision conversion. If images are listed → convert each one. If no images remain → proceed to Step 5.
+**Use skill**: `image-to-mermaid`
 
-For each image that needs vision conversion:
+Check the conversion manifest (from confluence-ingest skill output) for image entries. For each image:
 
-1. **Read the image file**
+#### A. Images with `partial_ast_file` (CV produced partial AST)
 
+1. Read the `.partial.ast.json` file at `governance/output/<PAGE_ID>/attachments/<stem>.partial.ast.json`
+2. Read the original image at `governance/output/<PAGE_ID>/attachments/<filename>.png`
+3. Send BOTH to the LLM with a structured prompt asking it to:
+   - Verify nodes (ids, labels)
+   - Add missing edges
+   - Confirm arrow directions
+   - Assign edge labels where appropriate
+4. LLM returns corrected AST as JSON. Save as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
+5. Run `ast_to_mermaid.py` to generate Mermaid:
+
+   ```bash
+   python3 copilot/skills/confluence-ingest/ast_to_mermaid.py \
+     --input governance/output/<PAGE_ID>/attachments/<stem>.ast.json \
+     --output governance/output/<PAGE_ID>/attachments/<stem>.mmd
    ```
-   Read file: governance/output/<PAGE_ID>/attachments/<filename>.png
-   ```
 
-2. **Output Mermaid code** that reproduces the diagram preserving colors, shapes, labels, line styles
+6. Store for Step 6 — map image reference to the generated Mermaid
 
-3. **Store for Step 6** -- keep track of which image maps to which Mermaid code
+#### B. Images where CV failed (no partial AST)
+
+1. Read the image via vision
+2. Produce full AST JSON from scratch (nodes, edges, arrow directions, labels)
+3. Save as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
+4. Run `ast_to_mermaid.py` as above to generate Mermaid
+5. Store for Step 6
+
+**LLM repair is MANDATORY** for all image-sourced ASTs. Every image must have a final `.ast.json` before `ast_to_mermaid.py` runs.
 
 After all listed images converted, proceed to Step 5.
 
@@ -418,6 +433,7 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 | Tab content                 | ✅ ALL tabs included as sections   |
 | Included/embedded pages     | ✅ ALL inlined                     |
 | Broken links                | ❌ NONE remaining                  |
+| `.ast.json` files           | ✅ All diagrams have `.ast.json`   |
 
 **VALIDATION CHECKLIST** (all must be true):
 
@@ -425,11 +441,12 @@ Scan final `page.md` and verify it is FULLY TEXT-BASED for validation:
 - [ ] ZERO `<img` HTML tags remaining
 - [ ] ALL Draw.io diagrams converted to inline Mermaid blocks
 - [ ] ALL SVG diagrams converted to inline Mermaid blocks (via svg_to_mermaid.py)
-- [ ] ALL PNG/JPG images converted to inline Mermaid blocks (via vision)
+- [ ] ALL PNG/JPG images converted to inline Mermaid blocks (via AST pipeline + ast_to_mermaid.py)
 - [ ] ALL PlantUML blocks (`@startuml`, ` ```plantuml `, ` ```puml `) converted to Mermaid
 - [ ] ALL Mermaid macros from Confluence preserved as-is
 - [ ] ALL Markdown macros from Confluence extracted without lossy HTML round-trip
 - [ ] Mermaid blocks validated via `validate_mermaid.py` if available (optional)
+- [ ] All diagrams have `.ast.json` files
 - [ ] Mermaid diagrams include `style` directives preserving original colors
 - [ ] Mermaid diagrams include `%% Color Legend` comments documenting color meaning
 - [ ] Zero Confluence page links (`/wiki/spaces/...`)
@@ -473,37 +490,45 @@ Do NOT write to the index folder yet. The output folder is the working directory
 
 **Only after Step 9 is complete**, if an index name was provided (`patterns`, `standards`, or `security`):
 
-1. Read `governance/output/<PAGE_ID>/metadata.json` to get the page title
-2. Create filename slug from title (lowercase, hyphens, alphanumeric only)
-3. **Copy** (not move) `governance/output/<PAGE_ID>/page.md` to the index folder
+1. Create per-page folder: `governance/indexes/<index>/<PAGE_ID>/`
+2. **Copy** the following into that folder:
+   - `page.md` from `governance/output/<PAGE_ID>/page.md`
+   - `metadata.json` from `governance/output/<PAGE_ID>/metadata.json`
+   - All `*.ast.json` from `governance/output/<PAGE_ID>/attachments/`
+   - All `*.mmd` from `governance/output/<PAGE_ID>/attachments/`
 
-**Source**: `governance/output/<PAGE_ID>/page.md`
-**Destination**: `governance/indexes/<index>/<PAGE_ID>-<title-slug>.md`
+**Source**: `governance/output/<PAGE_ID>/`
+**Destination**: `governance/indexes/<index>/<PAGE_ID>/`
 
-| Example Input                                      | Output Filename                                                |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| Page ID: `123456789`, Title: "System Architecture" | `governance/indexes/patterns/123456789-system-architecture.md` |
-| Page ID: `987654321`, Title: "API Guidelines v2"   | `governance/indexes/standards/987654321-api-guidelines-v2.md`  |
+| Example Input                                      | Output Folder                                   |
+| -------------------------------------------------- | ----------------------------------------------- |
+| Page ID: `123456789`, Index: `patterns`            | `governance/indexes/patterns/123456789/`         |
+| Page ID: `987654321`, Index: `standards`           | `governance/indexes/standards/987654321/`        |
 
 After copying, **proceed to Step 11** to extract rules.
 
 ### Step 11: Extract Rules (Ingest Mode Only)
 
-After copying to the index, trigger the `rules-extraction-agent` to pre-extract structured rules into a compact `.rules.md` file. This enables validation agents to read a small markdown table instead of the full raw document.
+After copying to the index, trigger the `rules-extraction-agent` to pre-extract structured rules. This enables validation agents to read a small markdown table instead of the full raw document.
 
 Use the agent tool to trigger `rules-extraction-agent`:
 
 - **Agent**: `rules-extraction-agent`
-- **Prompt**: `Extract rules from governance/indexes/<index>/<PAGE_ID>-<title-slug>.md for category <index>`
+- **Prompt**: `Extract rules from governance/indexes/<index>/<PAGE_ID>/page.md for category <index>`
 
-This creates `governance/indexes/<index>/<PAGE_ID>-<title-slug>.rules.md` alongside the raw document.
+**Output**:
+
+- Rules extracted into `governance/indexes/<index>/<PAGE_ID>/rules.md`
+- Rules consolidated into `governance/indexes/<index>/_all.rules.md`
 
 ```
 ───────────────────────────────────────────────────
 📥 INGESTION-AGENT: Triggering rules extraction
    Agent: rules-extraction-agent
-   Document: governance/indexes/<index>/<PAGE_ID>-<title-slug>.md
+   Document: governance/indexes/<index>/<PAGE_ID>/page.md
    Category: <index>
+   Output: governance/indexes/<index>/<PAGE_ID>/rules.md
+   Consolidated: governance/indexes/<index>/_all.rules.md
 ───────────────────────────────────────────────────
 ```
 
@@ -528,7 +553,7 @@ Wait for the rules-extraction-agent to complete before reporting final status.
 | SVG diagrams                 | ✅ Converted to inline Mermaid (deterministic XML parsing) |
 | Markdown macros              | ✅ Preserved as-is (no lossy HTML round-trip)              |
 | Mermaid macros               | ✅ Extracted and preserved directly                        |
-| Images (PNG/JPG)             | ✅ Converted to inline Mermaid via vision                  |
+| Images (PNG/JPG)             | ✅ Converted to inline Mermaid via AST pipeline           |
 | Mermaid validation           | ✅ Mermaid blocks validated if mmdc available              |
 | External dependencies        | ✅ NONE - no broken links, no images                       |
 | Confluence links             | ✅ NONE - all content inlined                              |

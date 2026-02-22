@@ -1,7 +1,7 @@
 ---
 name: confluence-ingest
 category: ingestion
-description: Ingest Confluence pages by page ID, downloading content and all attachments, converting diagrams to Mermaid via deterministic parsing (Draw.io XML, SVG XML, PlantUML, Markdown/Mermaid macros). Validates with mmdc, caches results by SHA256, and pre-extracts OCR/CV context for vision fallback.
+description: Ingest Confluence pages by page ID, downloading content and all attachments, converting diagrams to Mermaid via deterministic parsing. All sources flow through a canonical DiagramAST; converters emit .ast.json and .mmd. Validates with mmdc, caches results by SHA256.
 ---
 
 # Confluence Page Ingestion
@@ -19,24 +19,32 @@ Fetch Confluence pages and produce a self-contained Markdown file with:
 - **PlantUML diagrams converted to Mermaid via Python parsing (FREE)**
 - **All Mermaid output validated via `mmdc --parse`**
 - **Results cached by SHA256 content hash for deterministic re-ingestion**
-- Remaining raster images pre-extracted (OCR + CV) for vision fallback
+- **All diagram sources flow through AST** — `.ast.json` files are written alongside `.mmd` files
 
-## Conversion Priority Cascade
+## Conversion Cascade: All Sources → AST → Mermaid
 
-The script tries every deterministic method first, falling back to vision only as a last resort:
+All diagram converters produce a canonical `DiagramAST` (defined in `diagram_ast.py`). The pipeline is: **source → AST → Mermaid**. Use `--ast-output` on converters to persist the AST.
 
-| Priority | Source Type | Method | Tool | Cost | Deterministic |
-|----------|------------|--------|------|------|--------------|
-| 1 | Draw.io (`.drawio` file) | XML parsing | `drawio_to_mermaid.py` | **FREE** | Yes |
-| 2 | SVG (`.svg` file or inline) | XML parsing | `svg_to_mermaid.py` | **FREE** | Yes |
-| 3 | Mermaid macro | Extract CDATA as-is | built-in | **FREE** | Yes |
-| 4 | Markdown macro | Extract CDATA raw MD | built-in | **FREE** | Yes |
-| 5 | Code Block macro | Extract CDATA + language | built-in | **FREE** | Yes |
-| 6 | No Format macro | Extract CDATA preformatted | built-in | **FREE** | Yes |
-| 7 | Excerpt macro | Mark boundaries in HTML | built-in | **FREE** | Yes |
-| 8 | PlantUML | Python parsing | `plantuml_to_mermaid.py` | **FREE** | Yes |
-| 9 | Cached result | SHA256 lookup | built-in | **FREE** | Yes |
-| 10 | PNG/JPG (last resort) | Pre-extract + vision | `preextract_diagram.py` + LLM | $$$ | No |
+| Source Type | Converter | Output | `--ast-output` |
+|-------------|-----------|--------|----------------|
+| Draw.io (`.drawio`) | `drawio_to_mermaid.py` | `.mmd` | Persists `.ast.json` |
+| SVG (`.svg`) | `svg_to_mermaid.py` | `.mmd` | Persists `.ast.json` |
+| PlantUML | `plantuml_to_mermaid.py` | `.mmd` | Persists `.ast.json` |
+| PNG/JPG (image) | `image_to_ast.py` → LLM repair → `ast_to_mermaid.py` | `.mmd` | Partial AST → repaired AST |
+| Mermaid macro | Extract CDATA as-is | `.mmd` | N/A |
+| Markdown / Code Block / No Format / Excerpt | built-in | N/A | N/A |
+| Cached result | SHA256 lookup | `.mmd` | From cache |
+
+## Key Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `diagram_ast.py` | Canonical AST schema (`DiagramAST`, `DiagramNode`, `DiagramEdge`, `DiagramGroup`). Shared by all converters. Serializes to `.ast.json`; `generate_mermaid()` renders to Mermaid. |
+| `ast_to_mermaid.py` | Converts any `.ast.json` to Mermaid. Usage: `python ast_to_mermaid.py --input diagram.ast.json [--output diagram.mmd]` |
+| `image_to_ast.py` | Deterministic CV + OCR extraction from raster images. Produces **partial** AST with confidence scores. Output must be repaired by LLM before `ast_to_mermaid.py`. Usage: `python image_to_ast.py --input diagram.png [--output diagram.ast.json]` |
+| `drawio_to_mermaid.py` | Draw.io XML → AST → Mermaid |
+| `svg_to_mermaid.py` | SVG XML → AST → Mermaid |
+| `plantuml_to_mermaid.py` | PlantUML → AST → Mermaid |
 
 ## Setup (First Run Only)
 
@@ -50,7 +58,7 @@ pip install -r requirements.txt
 # Install Mermaid CLI for syntax validation
 npm install
 
-# Install Tesseract OCR (for image pre-extraction)
+# Install Tesseract OCR (for image_to_ast.py CV pipeline)
 # macOS: brew install tesseract
 # Ubuntu: sudo apt-get install tesseract-ocr
 ```
@@ -78,7 +86,7 @@ python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 | Metadata | `governance/output/<PAGE_ID>/metadata.json` |
 | Conversion manifest | `governance/output/<PAGE_ID>/conversion-manifest.json` |
 | Attachments | `governance/output/<PAGE_ID>/attachments/` |
-| Pre-extract context | `governance/output/<PAGE_ID>/attachments/<image>.context.json` |
+| Diagram AST | `governance/output/<PAGE_ID>/attachments/<diagram>.ast.json` (alongside `.mmd`) |
 | Cache | `governance/output/.cache/mermaid/<sha256>.mmd` |
 
 ## Validation
@@ -92,12 +100,20 @@ All generated Mermaid is validated using `mmdc --parse` via `validate_mermaid.py
 python copilot/skills/confluence-ingest/validate_mermaid.py --input diagram.mmd --json
 ```
 
-## SVG to Mermaid Conversion
+## Draw.io to Mermaid Conversion
 
-SVG files (vector XML) are parsed deterministically -- no LLM needed:
+Draw.io files (`.drawio` XML) are parsed deterministically — no LLM needed:
 
 ```bash
-python copilot/skills/confluence-ingest/svg_to_mermaid.py --input diagram.svg
+python copilot/skills/confluence-ingest/drawio_to_mermaid.py --input diagram.drawio [--ast-output diagram.ast.json]
+```
+
+## SVG to Mermaid Conversion
+
+SVG files (vector XML) are parsed deterministically — no LLM needed:
+
+```bash
+python copilot/skills/confluence-ingest/svg_to_mermaid.py --input diagram.svg [--ast-output diagram.ast.json]
 ```
 
 Handles:
@@ -107,28 +123,21 @@ Handles:
 - CSS `fill`, `stroke`, `stroke-dasharray` as colors and line styles
 - Detects embedded raster images (falls back to vision)
 
-## Image Pre-Extraction
+## Image to Mermaid (PNG/JPG)
 
-For images that require vision, deterministic features are extracted first:
+Raster images use the AST-first flow. See the `image-to-mermaid` skill for full steps:
 
-```bash
-python copilot/skills/confluence-ingest/preextract_diagram.py --input diagram.png --format-prompt
-```
-
-Extracts:
-- **Text labels** via Tesseract OCR (exact strings)
-- **Colors** via Pillow (exact hex values)
-- **Shape counts** via OpenCV (rectangles, circles, diamonds)
-- **Line counts** via OpenCV Hough transform
-
-The agent includes this context in the LLM prompt to constrain output.
+1. `image_to_ast.py` — deterministic CV/OCR → partial `.ast.json`
+2. LLM repair (mandatory) — correct the AST using the image
+3. Save repaired `.ast.json`
+4. `ast_to_mermaid.py` — AST → Mermaid
 
 ## PlantUML to Mermaid Conversion
 
 PlantUML blocks (`@startuml`/`@enduml`, `` ```plantuml ``/`` ```puml ``) don't render natively in Markdown. This tool converts them to Mermaid automatically.
 
 ```bash
-python copilot/skills/confluence-ingest/plantuml_to_mermaid.py --input <PAGE_MD> --output <PAGE_MD>
+python copilot/skills/confluence-ingest/plantuml_to_mermaid.py --input <PAGE_MD> --output <PAGE_MD> [--ast-output diagram.ast.json]
 ```
 
 ### Supported Diagram Types

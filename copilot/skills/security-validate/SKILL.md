@@ -11,13 +11,14 @@ Validate architecture document against all security documents in the index.
 ## Inputs
 
 1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
-2. **Index**: `governance/indexes/security/` (ALL .md files)
+2. **Index**: `governance/indexes/security/` (rules and per-page content)
+3. **AST files**: `governance/output/<PAGE_ID>/*.ast.json` — diagram structure (nodes, edges, groups)
 
 ## Instructions
 
-1. Read ALL .md files from `governance/indexes/security/`
-2. Read the architecture document
-3. For each security control found in the index files, check if addressed
+1. Read rules from `governance/indexes/security/` (per index-query: `_all.rules.md` > `<PAGE_ID>/rules.md` > `<PAGE_ID>/page.md`)
+2. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/`
+3. For each security control found in the index, check if addressed
 4. Look for vulnerabilities (hardcoded secrets, etc.)
 5. Calculate score and write report
 
@@ -25,46 +26,35 @@ Validate architecture document against all security documents in the index.
 
 For each security control found in index files:
 - Search the document **text sections** for evidence of the control
-- Search **Mermaid diagram code blocks** for architectural evidence (see below)
+- Use **AST-based structural validation** (see below) when `*.ast.json` files exist
 - Look for security mechanisms, protocols, configurations
 - Identify any vulnerabilities or security gaps
 
-### Interpreting Mermaid Diagrams as Evidence
+### AST-Based Structural Validation
 
-The document may contain `\`\`\`mermaid` code blocks representing architecture diagrams. These are **first-class evidence** -- treat them with the same weight as written text.
+When `governance/output/<PAGE_ID>/*.ast.json` files exist, use them for structural evidence. The AST provides canonical `nodes`, `edges`, and `groups` — cite these elements in evidence.
 
-**How to extract security evidence from Mermaid:**
+**How to extract security evidence from AST:**
 
-| Mermaid Element | What to Check | Security Evidence |
-|-----------------|---------------|-------------------|
-| Edge labels (`--\|HTTPS\|-->`, `--\|mTLS\|-->`) | Protocol between components | Encryption in transit, TLS requirements |
-| Node names (`Gateway`, `Auth`, `WAF`) | Component types | Presence of security components (API gateway, WAF, auth service) |
-| Subgraph boundaries (`subgraph DMZ`, `subgraph Internal`) | Network segmentation | Trust zones, isolation boundaries |
-| Missing edges (A has no path to B) | Forbidden communication | Access control, data flow restrictions |
-| Arrow direction (A --> B but not B --> A) | One-way data flow | Data flow controls, read-only access patterns |
-| Style/class annotations (`:::critical`, color notes) | Classification | Sensitivity levels, security tiers |
+| AST Element | What to Check | Security Evidence |
+|-------------|---------------|-------------------|
+| `ast.edges` (label) | Protocol between components | Encryption in transit (HTTPS, mTLS in edge label) |
+| `ast.nodes` (labels) | Component types | Presence of security components (Gateway, Auth, WAF) |
+| `ast.groups` | Network segmentation | Trust zones, isolation boundaries (group membership) |
+| Missing edges in `ast.edges` | Forbidden communication | No edge A→B → access control, data flow restrictions |
+| Edge direction (A→B but not B→A) | One-way data flow | Data flow controls, read-only patterns |
+| Node metadata (fill_color, etc.) | Classification | Sensitivity levels, security tiers |
 
-**Example -- matching a rule against a diagram:**
+**Example — matching a rule against AST:**
 
 Rule: *"All external vendor traffic must route through API gateway"*
 Keywords: `vendor, gateway, external`
 
-```mermaid
-flowchart TB
-    subgraph External
-        Vendor[Vendor API]
-    end
-    subgraph Internal
-        GW[API Gateway]
-        App[Service]
-    end
-    Vendor -->|HTTPS| GW
-    GW -->|mTLS| App
-```
+AST excerpt: `groups: [{id: "External", children: ["Vendor"]}, {id: "Internal", children: ["GW", "App"]}], edges: [{source: "Vendor", target: "GW", label: "HTTPS"}, {source: "GW", target: "App", label: "mTLS"}]`
 
-Evidence: `Vendor -->|HTTPS| GW` confirms vendor traffic routes through gateway. No direct `Vendor --> App` edge confirms isolation. **Status: PASS**
+Evidence: Edge `Vendor→GW` with label "HTTPS" confirms vendor traffic routes through gateway. No edge `Vendor→App` confirms isolation. **Cite**: `ast.edges`, `ast.groups`. **Status: PASS**
 
-**Important**: If a rule's keywords appear in Mermaid node names, edge labels, or subgraph titles, that is valid evidence. Cite the specific Mermaid line(s) in your report's Evidence column.
+**Important**: Cite specific AST elements in your report's Evidence column (e.g., `edge:Vendor→GW`, `group:Internal`).
 
 ## Vulnerabilities to Detect
 

@@ -364,11 +364,11 @@ Each agent has its own logging format. Find your agent name below and use the co
    └── 100% text/Mermaid: YES ✅
    RULES (ingest mode):
    ├── Rules extracted: <count>
-   └── Rules file: governance/indexes/<index>/<PAGE_ID>-<title>.rules.md
+   └── Rules file: governance/indexes/<index>/<PAGE_ID>/rules.md
    OUTPUT FILES:
    ├── Page: governance/output/<PAGE_ID>/page.md
-   ├── Indexed: governance/indexes/<index>/<PAGE_ID>-<title>.md (if ingest)
-   └── Rules: governance/indexes/<index>/<PAGE_ID>-<title>.rules.md (if ingest)
+   ├── Indexed: governance/indexes/<index>/<PAGE_ID>/page.md (if ingest)
+   └── Rules: governance/indexes/<index>/<PAGE_ID>/rules.md (if ingest)
    Skills used: <list of discovered skills>
 ═══════════════════════════════════════════════════════════════════
 ```

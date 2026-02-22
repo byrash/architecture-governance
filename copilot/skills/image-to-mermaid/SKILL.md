@@ -1,7 +1,7 @@
 ---
 name: image-to-mermaid
 category: ingestion
-description: Convert architecture diagram images (PNG, JPG) to Mermaid syntax by reading the image and reproducing it as a Mermaid code block. Preserve all colors, shapes, labels, and line styles.
+description: Convert architecture diagram images (PNG, JPG) to Mermaid via AST-first flow — image_to_ast.py (CV extraction) → mandatory LLM repair → ast_to_mermaid.py. Preserve all colors, shapes, labels, and line styles in the AST.
 ---
 
 # Image to Mermaid Conversion
@@ -10,21 +10,37 @@ Convert diagram images to Mermaid syntax by reading the image file and reproduci
 
 **Note:** The ingestion script already converts Draw.io (`.drawio`) and SVG files to Mermaid via XML parsing. This skill handles PNG/JPG images that remain as `![...](...)` references in page.md.
 
-## Optional: Pre-Extraction for Better Accuracy
+## AST-First Image Conversion Flow
 
-If Tesseract and OpenCV are installed, run pre-extraction to get OCR labels and colors. This improves accuracy but is **not required** -- skip if it fails:
+The flow is: **CV → partial AST → mandatory LLM repair → final AST → Mermaid**. Follow these steps in order:
+
+### Step 1: Run `image_to_ast.py` (Deterministic CV Extraction)
+
+Produces a partial AST with confidence scores. No LLM involved.
 
 ```bash
-python copilot/skills/confluence-ingest/preextract_diagram.py --input <IMAGE_PATH> --format-prompt
+python copilot/skills/confluence-ingest/image_to_ast.py --input <IMAGE_PATH> [--output <OUTPUT>.ast.json]
 ```
 
-If successful, include the OCR labels and hex colors in your reasoning. If it fails, proceed with visual inspection only.
+Default output: `<input>.ast.json` alongside the image.
 
-## Instructions
+### Step 2: LLM Repair (MANDATORY)
 
-1. **Read the image file**
-2. If pre-extracted context (`.context.json`) is available, use the exact OCR labels and hex colors
-3. **Reproduce the diagram in Mermaid** preserving ALL of the following:
+Send the partial AST + the original image to the LLM. Receive a corrected AST as structured JSON. **This is not optional** — all image-sourced ASTs must be repaired by the LLM before rendering to Mermaid.
+
+### Step 3: Save Final Repaired `.ast.json`
+
+Write the LLM's corrected AST to the output path (e.g. `governance/output/<PAGE_ID>/attachments/<image>.ast.json`).
+
+### Step 4: Run `ast_to_mermaid.py` to Generate Mermaid
+
+```bash
+python copilot/skills/confluence-ingest/ast_to_mermaid.py --input <REPAIRED>.ast.json [--output <OUTPUT>.mmd]
+```
+
+### What the LLM Must Preserve in the Repaired AST
+
+When repairing the partial AST, ensure the final structure preserves ALL of the following:
 
 | Property | What to Preserve | Mermaid Feature |
 |----------|-----------------|-----------------|
@@ -36,7 +52,7 @@ If successful, include the OCR labels and hex colors in your reasoning. If it fa
 | **Grouping** | Boxes/boundaries around component clusters | `subgraph` blocks |
 | **Layout direction** | Top-to-bottom vs left-to-right | `flowchart TB` vs `flowchart LR` |
 
-3. **Add a visual legend comment** at the bottom documenting color meanings and any line style conventions
+- **Visual legend** — document color meanings and line style conventions in metadata or comments
 
 **Why this matters**: Downstream agents (rules-extraction, validation) use colors to identify component types (internal vs vendor), line styles to infer coupling and criticality, and arrow directions to determine data flow rules. Stripping ANY visual property loses governance context.
 
