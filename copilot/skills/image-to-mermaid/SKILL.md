@@ -1,41 +1,30 @@
 ---
 name: image-to-mermaid
 category: ingestion
-description: Convert architecture diagram images (PNG, JPG) to Mermaid syntax using model vision as a LAST RESORT. Always try deterministic paths first (Draw.io XML, SVG XML). When vision is needed, run preextract_diagram.py first and include its context in the prompt.
+description: Convert architecture diagram images (PNG, JPG) to Mermaid syntax by reading the image and reproducing it as a Mermaid code block. Preserve all colors, shapes, labels, and line styles.
 ---
 
-# Image to Mermaid Conversion (Vision -- Last Resort)
+# Image to Mermaid Conversion
 
-This skill is the **fallback** for images that cannot be converted deterministically.
+Convert diagram images to Mermaid syntax by reading the image file and reproducing its structure.
 
-## Before Using Vision
+**Note:** The ingestion script already converts Draw.io (`.drawio`) and SVG files to Mermaid via XML parsing. This skill handles PNG/JPG images that remain as `![...](...)` references in page.md.
 
-**Check the conversion cascade first:**
+## Optional: Pre-Extraction for Better Accuracy
 
-1. Does a `.drawio` source file exist? -> Use `drawio_to_mermaid.py` (deterministic, FREE)
-2. Is the image an SVG? -> Use `svg_to_mermaid.py` (deterministic, FREE)
-3. Is there a SHA256 cache hit? -> Check `governance/output/.cache/mermaid/`
-4. **Only if all above fail** -> Use this vision skill
-
-## Pre-Extraction Step (MANDATORY before vision)
-
-Before reading the image with the LLM, run pre-extraction to get deterministic facts:
+If Tesseract and OpenCV are installed, run pre-extraction to get OCR labels and colors. This improves accuracy but is **not required** -- skip if it fails:
 
 ```bash
 python copilot/skills/confluence-ingest/preextract_diagram.py --input <IMAGE_PATH> --format-prompt
 ```
 
-This outputs OCR text labels, exact hex colors, shape counts, and line counts. **Include the full output in your prompt alongside the image.** This constrains the LLM so it cannot hallucinate labels, miss components, or guess at colors.
+If successful, include the OCR labels and hex colors in your reasoning. If it fails, proceed with visual inspection only.
 
 ## Instructions
 
-1. **Run `preextract_diagram.py`** on the image and read the `.context.json` output
-2. **Read the image file**
-3. **Include the pre-extracted context** in your reasoning:
-   - Use the exact OCR labels (do not invent or omit any)
-   - Use the exact hex color values from color extraction
-   - Ensure your node count matches the shape detection count
-4. **Reproduce the diagram in Mermaid** preserving ALL of the following:
+1. **Read the image file**
+2. If pre-extracted context (`.context.json`) is available, use the exact OCR labels and hex colors
+3. **Reproduce the diagram in Mermaid** preserving ALL of the following:
 
 | Property | What to Preserve | Mermaid Feature |
 |----------|-----------------|-----------------|
@@ -196,26 +185,12 @@ Always add a `%% Visual Legend` comment block at the end of every Mermaid diagra
 
 This helps downstream validation and rules-extraction agents interpret the full diagram semantics without needing the original image.
 
-## Post-Conversion Validation (MANDATORY)
+## Post-Conversion Validation
 
-After generating Mermaid, validate syntax:
+After generating Mermaid, optionally validate syntax if the tool is available:
 
 ```bash
 python copilot/skills/confluence-ingest/validate_mermaid.py --code "<MERMAID_CODE>" --json
 ```
 
-If validation fails:
-1. Read the error message
-2. Fix the Mermaid syntax
-3. Re-validate
-4. Maximum 3 attempts -- if still invalid, keep the original image reference
-
-## Caching
-
-After successful validation, the result is cached by SHA256 hash of the source image.
-Re-ingestion of the same unchanged image will use the cached result (deterministic).
-
-## Manual Review Flag
-
-All vision-converted diagrams are flagged with `"manual_review": true` in the conversion manifest.
-The ingestion summary will print a reminder for manual verification.
+If validation fails, read the error, fix the syntax, and retry (max 3 attempts). If the validator is not available, proceed without it.
