@@ -86,7 +86,7 @@ python copilot/skills/confluence-ingest/confluence_ingest.py --page-id <PAGE_ID>
 |---------|----------|
 | Markdown | `governance/output/<PAGE_ID>/page.md` |
 | Metadata | `governance/output/<PAGE_ID>/metadata.json` |
-| Conversion manifest | `governance/output/<PAGE_ID>/conversion-manifest.json` |
+| Conversion manifest | `governance/output/<PAGE_ID>/manifest.json` |
 | Attachments | `governance/output/<PAGE_ID>/attachments/` |
 | Diagram AST | `governance/output/<PAGE_ID>/attachments/<diagram>.ast.json` (alongside `.mmd`) |
 | Cache | `governance/output/.cache/mermaid/<sha256>.mmd` |
@@ -164,7 +164,7 @@ python copilot/skills/confluence-ingest/replace_diagrams.py --page-dir governanc
 This script runs three phases:
 
 1. **PlantUML auto-detection** — finds and converts any `@startuml`/```plantuml/```puml blocks still in `page.md`
-2. **Image-ref replacement** — reads `conversion-manifest.json` and `.mmd` files, replaces all `![](image)` refs with inline Mermaid
+2. **Image-ref replacement** — reads `manifest.json` and `.mmd` files, replaces all `![](image)` refs with inline Mermaid
 3. **Mermaid auto-fix** — patches unicode arrows, unclosed subgraphs, unquoted special-char labels
 
 Use `--dry-run` to preview without writing:

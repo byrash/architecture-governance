@@ -298,11 +298,11 @@ Write the output file at `governance/indexes/<index>/<PAGE_ID>/rules.md` using t
 **Severity codes**: C=Critical, H=High, M=Medium, L=Low
 **Req codes**: Y=Required, N=Recommended
 
-### Step 4: Update \_all.rules.md (Consolidated)
+### Step 4: Create or Update \_all.rules.md (MANDATORY)
 
-**This step is critical** -- validation agents read `_all.rules.md`, not per-page `rules.md` files. Without this step, downstream validation finds zero rules.
+**⚠️ DO NOT SKIP THIS STEP.** Validation agents read `_all.rules.md`, not per-page `rules.md` files. Without this step, downstream validation finds **zero rules** and the entire ingestion is wasted.
 
-Determine the index folder (e.g. `governance/indexes/patterns/`). Write `_all.rules.md` at `governance/indexes/<index>/_all.rules.md`.
+Determine the index folder from the input path (e.g. if input is `governance/indexes/patterns/123/page.md`, the index folder is `governance/indexes/patterns/`). The output file is `governance/indexes/<index>/_all.rules.md`.
 
 1. **If `_all.rules.md` does not exist** in the folder → create it using the consolidated format from Batch Mode, with this file's rules as the initial content:
 
@@ -344,6 +344,13 @@ Determine the index folder (e.g. `governance/indexes/patterns/`). Write `_all.ru
 This is the same incremental approach as Batch Mode Step 2, sub-step 6.
 
 ### Completion
+
+Before reporting success, **verify** both output files exist:
+
+1. `governance/indexes/<index>/<PAGE_ID>/rules.md` — per-page rules
+2. `governance/indexes/<index>/_all.rules.md` — consolidated rules (created or updated)
+
+If `_all.rules.md` was not written, go back to Step 4 and create it. Do not report completion without it.
 
 ---
 

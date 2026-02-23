@@ -292,7 +292,7 @@ def replace_diagrams(page_dir: str) -> dict:
     page_path = Path(page_dir)
     page_md = page_path / 'page.md'
     attachments_dir = page_path / 'attachments'
-    manifest_path = page_path / 'conversion-manifest.json'
+    manifest_path = page_path / 'manifest.json'
 
     if not page_md.exists():
         print(f"Error: {page_md} not found", file=sys.stderr)
@@ -383,7 +383,7 @@ def main() -> int:
             return 1
         md = page_md.read_text(encoding='utf-8')
         attachments_dir = page_path / 'attachments'
-        manifest_path = page_path / 'conversion-manifest.json'
+        manifest_path = page_path / 'manifest.json'
         puml_blocks = extract_plantuml_blocks(md)
         mermaid_map = _build_mermaid_map(attachments_dir, manifest_path) if attachments_dir.exists() else {}
         img_refs = _IMG_REF.findall(md)

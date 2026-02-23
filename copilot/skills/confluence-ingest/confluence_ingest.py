@@ -1489,12 +1489,14 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     remaining_images = len(remaining_image_refs)
     for img_path, ext in remaining_image_refs:
         stem = os.path.splitext(img_path.split('/')[-1])[0]
+        img_full_path = download_dir / img_path.split('/')[-1]
         entry = {
             'source': img_path.split('/')[-1],
             'method': 'cv_tesseract_plus_llm_repair',
             'deterministic': False,
             'valid': None,
             'needs_llm_repair': True,
+            'source_hash': compute_file_hash(img_full_path) if img_full_path.exists() else None,
         }
         if img_path in image_ast_results:
             entry['partial_ast_file'] = f"{stem}.partial.ast.json"
@@ -1504,6 +1506,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
 
     deterministic_count = sum(1 for e in conversion_manifest if e.get('deterministic'))
     vision_count = sum(1 for e in conversion_manifest if e.get('method') == 'vision_llm')
+    llm_repair_count = sum(1 for e in conversion_manifest if e.get('needs_llm_repair'))
     failed_count = sum(1 for e in conversion_manifest if e.get('valid') is False)
     cached_count = sum(1 for e in conversion_manifest if e.get('cache_hit'))
 
@@ -1513,13 +1516,13 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
             'total': len(conversion_manifest),
             'deterministic': deterministic_count,
             'vision': vision_count,
-            'manual_review_needed': vision_count,
+            'needs_llm_repair': llm_repair_count,
             'failed': failed_count,
             'cached': cached_count,
         }
     }
 
-    manifest_path = page_dir / "conversion-manifest.json"
+    manifest_path = page_dir / "manifest.json"
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, indent=2)
 

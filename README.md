@@ -118,9 +118,9 @@ flowchart TB
     U3 -->|folder / file| REA
     U4 -->|page.md path| PA & SA & SEA
     GA -->|step 1| IA
-    GA -->|step 2| PA
-    GA -->|step 2| SA
-    GA -->|step 2| SEA
+    GA -->|step 3| PA
+    GA -->|step 4| SA
+    GA -->|step 5| SEA
 
     %% Ingestion triggers rules extraction
     IA -->|"after index"| REA
@@ -182,12 +182,13 @@ Internally triggers:
 
 | Step | Agent Called | Prompt Sent |
 |------|-------------|-------------|
-| 1 | ingestion-agent | `Ingest Confluence page <PAGE_ID> in governance mode` |
-| 2 | patterns-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 3 | standards-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 4 | security-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 5 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
-| 6 | (self) | Generate HTML dashboard (markdown-to-html skill) |
+| 1 | ingestion-agent | `Ingest Confluence page <PAGE_ID>` |
+| 2 | (self) | Ensure `_all.rules.md` exists in each index (trigger rules-extraction-agent if missing) |
+| 3 | patterns-agent | `Validate governance/output/<PAGE_ID>/page.md` |
+| 4 | standards-agent | `Validate governance/output/<PAGE_ID>/page.md` |
+| 5 | security-agent | `Validate governance/output/<PAGE_ID>/page.md` |
+| 6 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
+| 7 | (self) | Generate HTML dashboard (markdown-to-html skill) |
 
 ### ingestion-agent
 
@@ -278,7 +279,7 @@ sequenceDiagram
     IA->>IA: 8. CV+OCR → partial AST → mandatory LLM repair → Mermaid
 
     Note over IA: Validate all Mermaid via mmdc
-    IA->>IA: Write conversion-manifest.json (with ast_file per diagram)
+    IA->>IA: Write manifest.json (with ast_file per diagram)
     IA->>Index: Copy to indexes/patterns/<PAGE_ID>/ folder
     IA->>REA: Extract rules from indexed page + AST files
     REA->>Index: Write <PAGE_ID>/rules.md + _all.rules.md
@@ -286,7 +287,45 @@ sequenceDiagram
     IA-->>User: Indexed + rules extracted
 ```
 
-### 2. Validate Architecture
+### 2. Reindex (Incremental)
+
+Re-ingest a page that was previously indexed. Only changed diagrams are reprocessed — unchanged images reuse existing `.ast.json` + `.mmd` from the index, skipping expensive LLM repair.
+
+```
+@ingestion-agent Ingest Confluence page 123456789 to patterns
+```
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant IA as ingestion-agent
+    participant REA as rules-extraction-agent
+    participant Index
+
+    User->>IA: Ingest page 123 to patterns (reindex)
+    IA->>IA: Download fresh from Confluence
+
+    Note over IA,Index: Delta Detection
+    IA->>Index: Read metadata.json (page version)
+    alt Page version unchanged
+        IA-->>User: No changes, skipping reindex
+    else Page version changed
+        IA->>Index: Read manifest.json (source_hash per diagram)
+        IA->>IA: Compare image hashes (new vs indexed)
+        Index-->>IA: Copy unchanged .ast.json + .mmd to output
+        Note over IA: Only LLM-repair CHANGED images
+        IA->>IA: Deterministic cascade (cache hits for unchanged)
+        IA->>IA: LLM repair (changed images only)
+        IA->>IA: replace_diagrams.py (all diagrams)
+        IA->>Index: Copy updated artifacts to index
+        IA->>REA: Extract rules
+        REA->>Index: Update rules.md + _all.rules.md
+        REA-->>IA: Done
+        IA-->>User: Reindexed (N reused, M changed)
+    end
+```
+
+### 3. Validate Architecture
 
 Run full governance validation:
 
@@ -312,11 +351,16 @@ sequenceDiagram
     IA->>IA: Deterministic cascade (Draw.io/SVG/macros/PlantUML/cache)
     IA->>IA: CV+OCR → partial AST → mandatory LLM repair
     IA->>IA: Validate all Mermaid via mmdc
-    IA->>REA: Extract rules from page + AST files
-    REA-->>IA: rules.md written
     IA-->>GA: page.md ready (AST + Mermaid for all diagrams)
 
-    Note over GA,SEA: Step 2: Parallel Validation
+    Note over GA,REA: Step 2: Ensure Rules Exist
+    GA->>GA: Check _all.rules.md in each index
+    opt missing but indexed pages exist
+        GA->>REA: Extract rules from index
+        REA-->>GA: _all.rules.md written
+    end
+
+    Note over GA,SEA: Steps 3-5: Parallel Validation
     par patterns
         GA->>PA: Validate patterns
         PA->>PA: Read _all.rules.md + AST files
@@ -334,7 +378,7 @@ sequenceDiagram
         SEA-->>GA: security-report.md
     end
 
-    Note over GA: Step 3-4: Consolidate
+    Note over GA: Steps 6-7: Consolidate
     GA->>GA: Merge reports (30/30/40 weights)
     GA->>GA: Generate HTML dashboard
     GA-->>User: governance-report.html
@@ -388,7 +432,7 @@ ln -sf ../copilot/skills .github/skills
 **Agent-to-Agent Triggering:**
 - The `governance-agent` uses **handoffs** (VS Code feature) to provide workflow buttons
 - It also uses the `agent` tool to programmatically invoke other agents
-- In VS Code, you'll see "Step 1: Ingest Page", "Step 2: Validate Patterns", "Step 3: Validate Standards", "Step 4: Validate Security" buttons after responses
+- In VS Code, you'll see "Step 1: Ingest Page", "Step 3: Validate Patterns", "Step 4: Validate Standards", "Step 5: Validate Security" buttons after responses
 
 ## Usage Examples
 
@@ -431,7 +475,7 @@ All outputs saved to `governance/output/`:
 | `<PAGE_ID>/attachments/` | Original downloaded files |
 | `<PAGE_ID>/attachments/<name>.ast.json` | AST IR per diagram (canonical semantic representation) |
 | `<PAGE_ID>/attachments/<name>.mmd` | Mermaid per diagram (generated from AST) |
-| `<PAGE_ID>/conversion-manifest.json` | Per-diagram: method, ast_file, mermaid_file, validity |
+| `<PAGE_ID>/manifest.json` | Per-diagram: method, ast_file, mermaid_file, validity |
 | `<PAGE_ID>-patterns-report.md` | Pattern validation results |
 | `<PAGE_ID>-standards-report.md` | Standards validation results |
 | `<PAGE_ID>-security-report.md` | Security validation results |
@@ -510,7 +554,7 @@ governance/
     ├── <PAGE_ID>/              # Page folder
     │   ├── page.md
     │   ├── metadata.json
-    │   ├── conversion-manifest.json  # Per-diagram: method, ast_file, valid
+    │   ├── manifest.json             # Per-diagram: method, ast_file, valid
     │   └── attachments/
     │       ├── <name>.ast.json       # AST IR per diagram
     │       └── <name>.mmd           # Mermaid per diagram

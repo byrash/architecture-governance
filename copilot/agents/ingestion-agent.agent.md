@@ -1,13 +1,13 @@
 ---
 name: ingestion-agent
-description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
+description: Ingests Confluence pages by page ID, converting all diagrams to AST JSON IR + Mermaid via deterministic parsing or CV+OCR with mandatory LLM repair. Outputs per-page artifact folders (page.md, .ast.json, .mmd, manifest.json). Triggers rules-extraction-agent when indexing. Supports incremental reindex with delta detection. Use when asked to ingest, import, or fetch Confluence pages.
 model: ['Claude Sonnet 5', 'gpt-4.1']
 tools: ['read', 'edit', 'execute', 'agent', 'todo']
 ---
 
 # Ingestion Agent
 
-Ingest Confluence pages and produce a single clean Markdown file with all diagrams converted to Mermaid.
+Ingest Confluence pages, convert all diagrams to AST JSON IR + Mermaid, and produce per-page artifact folders ready for validation. Supports incremental reindex with delta detection for changed diagrams only.
 
 ## ⚠️ CRITICAL: IMAGE CONVERSION RULES
 
@@ -41,7 +41,8 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 | Mode           | When              | Output                                                    |
 | -------------- | ----------------- | --------------------------------------------------------- |
 | **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only                |
-| **Ingest**     | index provided    | Also copies to `governance/indexes/<index>/<PAGE_ID>/` (page.md, metadata.json, *.ast.json, *.mmd) |
+| **Ingest**     | Index provided, first time | Full processing, copies to `governance/indexes/<index>/<PAGE_ID>/` |
+| **Reindex**    | Index provided, page already indexed | Incremental — skips unchanged images (reuses .ast.json + .mmd), re-traverses content |
 
 ## Example Invocations
 
@@ -83,9 +84,15 @@ Ingest Confluence pages and produce a single clean Markdown file with all diagra
 │  │                                                     │    │
 │  │  Step 2:  Download page                             │    │
 │  │       ↓                                             │    │
+│  │  [REINDEX? Delta detection]                         │    │
+│  │    ├─ Page version unchanged → STOP (no changes)    │    │
+│  │    ├─ Image hash unchanged → reuse .ast.json + .mmd │    │
+│  │    └─ Image hash changed → mark for LLM repair      │    │
+│  │       ↓                                             │    │
 │  │  Step 3:  Traverse and inline linked content        │    │
 │  │       ↓                                             │    │
-│  │  Step 4:  LLM repair image ASTs (mandatory)         │    │
+│  │  Step 4:  LLM repair image ASTs (CHANGED only)      │    │
+│  │           (skip REUSED images)                       │    │
 │  │       ↓                                             │    │
 │  │  Step 5:  Replace diagrams (LOCAL TOOL, no LLM)     │    │
 │  │           PlantUML + images + Mermaid auto-fix       │    │
@@ -151,6 +158,62 @@ If `package.json` exists at workspace root and `node_modules/` does not, run `np
 
 **Input**: `<PAGE_ID>`  
 **Output**: `governance/output/<PAGE_ID>/page.md`, `metadata.json`, `attachments/`
+
+#### Incremental Reindex Detection
+
+**Important**: The output folder (`governance/output/<PAGE_ID>/`) is freshly created on each ingestion. Previous conversion artifacts (`.ast.json`, `.mmd`) only persist in the **index** folder (`governance/indexes/<index>/<PAGE_ID>/`). When reindexing, the index is the source of truth for reusable artifacts.
+
+If an index name was provided AND `governance/indexes/<index>/<PAGE_ID>/` already exists, this is a **reindex**. Perform a smart delta check:
+
+1. **Page version check** — compare the Confluence page version:
+
+   ```bash
+   # Read existing indexed version
+   python3 -c "import json; print(json.load(open('governance/indexes/<index>/<PAGE_ID>/metadata.json'))['version'])"
+   # Read newly downloaded version
+   python3 -c "import json; print(json.load(open('governance/output/<PAGE_ID>/metadata.json'))['version'])"
+   ```
+
+   - **If versions are identical** → the page has not changed on Confluence. Log `"Page version unchanged (v<N>), skipping reindex."` and **stop here** (skip Steps 3-9, report no changes).
+   - **If versions differ** → content or attachments changed. Continue below.
+
+2. **Recover reusable artifacts from the index** — the index folder contains the results of previous LLM repair work. Read `governance/indexes/<index>/<PAGE_ID>/manifest.json` and compare with the new `governance/output/<PAGE_ID>/manifest.json`:
+
+   For each image entry where `method` = `cv_tesseract_plus_llm_repair`:
+   - Find the matching `source` filename in the indexed manifest
+   - Compare `source_hash` values (both stored in their respective manifests)
+   - **If hashes match** → image is unchanged, reuse the indexed artifacts
+
+3. **Copy reusable artifacts from INDEX → OUTPUT**:
+
+   For each image marked as reusable, copy the indexed `.ast.json` and `.mmd` into the output attachments folder so Steps 5-7 can find them:
+
+   ```bash
+   # Copy from INDEX (source of truth) to OUTPUT (working directory)
+   cp governance/indexes/<index>/<PAGE_ID>/<stem>.ast.json governance/output/<PAGE_ID>/attachments/
+   cp governance/indexes/<index>/<PAGE_ID>/<stem>.mmd governance/output/<PAGE_ID>/attachments/
+   ```
+
+   Mark these images as **REUSED** — they will be skipped in Step 4.
+   Images with changed hashes, missing indexed artifacts, or new images → mark as **CHANGED**.
+
+4. **Log the delta**:
+
+   ```
+   ───────────────────────────────────────────────────
+   📥 REINDEX DELTA: Page version v<OLD> → v<NEW>
+      Index folder: governance/indexes/<index>/<PAGE_ID>/
+      Artifacts recovered from index:
+        .ast.json files: <N>
+        .mmd files: <N>
+      Images unchanged (reused from index): <N>
+      Images changed (need LLM repair): <M>
+      Images new: <K>
+      Deterministic diagrams: handled by script cache
+   ───────────────────────────────────────────────────
+   ```
+
+If this is a **first-time index** (no existing index folder), skip delta detection — all diagrams need full processing.
 
 **NEXT → Step 3** (do NOT skip to Step 8)
 
@@ -295,6 +358,16 @@ Draw.io, SVG, and PlantUML diagrams are already converted by the script via dete
 
 Check the conversion manifest (from confluence-ingest skill output) for image entries. For each image:
 
+#### Skip REUSED images (incremental reindex)
+
+If Step 2 delta detection marked an image as **REUSED** (unchanged `source_hash`, `.ast.json` + `.mmd` already copied from the **index** folder into `governance/output/<PAGE_ID>/attachments/`), **skip it entirely** — no LLM repair needed. The previous LLM repair result is already in the output attachments. Log:
+
+```
+   ⏭️  Skipping <filename> (unchanged, reusing .ast.json + .mmd from index)
+```
+
+Only process images marked as **CHANGED** or **NEW** below:
+
 #### A. Images with `partial_ast_file` (CV produced partial AST)
 
 1. Read the `.partial.ast.json` file at `governance/output/<PAGE_ID>/attachments/<stem>.partial.ast.json`
@@ -320,9 +393,9 @@ Check the conversion manifest (from confluence-ingest skill output) for image en
 3. Save as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
 4. Run `ast_to_mermaid.py` as above to generate Mermaid
 
-**LLM repair is MANDATORY** for all image-sourced ASTs. Every image must have a final `.ast.json` before `ast_to_mermaid.py` runs.
+**LLM repair is MANDATORY** for all CHANGED/NEW image-sourced ASTs. Every non-reused image must have a final `.ast.json` before `ast_to_mermaid.py` runs.
 
-After all listed images converted, proceed to Step 5.
+After all listed images converted (or skipped as reused), proceed to Step 5.
 
 ### Step 5: Replace Diagrams and Fix Mermaid (LOCAL TOOL — NO LLM)
 
@@ -413,36 +486,54 @@ Do NOT write to the index folder yet. The output folder is the working directory
 
 **Only after Step 7 is complete**, if an index name was provided (`patterns`, `standards`, or `security`):
 
-1. Create per-page folder: `governance/indexes/<index>/<PAGE_ID>/`
-2. **Copy** the following into that folder:
-   - `page.md` from `governance/output/<PAGE_ID>/page.md`
-   - `metadata.json` from `governance/output/<PAGE_ID>/metadata.json`
-   - All `*.ast.json` from `governance/output/<PAGE_ID>/attachments/`
-   - All `*.mmd` from `governance/output/<PAGE_ID>/attachments/`
+Run these commands to create the per-page folder and copy **all** artifacts:
 
-**Source**: `governance/output/<PAGE_ID>/`
-**Destination**: `governance/indexes/<index>/<PAGE_ID>/`
+```bash
+mkdir -p governance/indexes/<index>/<PAGE_ID>/
+
+cp governance/output/<PAGE_ID>/page.md governance/indexes/<index>/<PAGE_ID>/
+cp governance/output/<PAGE_ID>/metadata.json governance/indexes/<index>/<PAGE_ID>/
+cp governance/output/<PAGE_ID>/manifest.json governance/indexes/<index>/<PAGE_ID>/
+
+# Copy AST and Mermaid artifacts from attachments
+cp governance/output/<PAGE_ID>/attachments/*.ast.json governance/indexes/<index>/<PAGE_ID>/ 2>/dev/null || true
+cp governance/output/<PAGE_ID>/attachments/*.mmd governance/indexes/<index>/<PAGE_ID>/ 2>/dev/null || true
+```
+
+**Verify** the copy succeeded — list the index folder and confirm it contains:
+
+| File                        | Required | Purpose                          |
+| --------------------------- | -------- | -------------------------------- |
+| `page.md`                   | Yes      | Source document                  |
+| `metadata.json`             | Yes      | Page version for delta detection |
+| `manifest.json`             | Yes      | Diagram hashes for delta detection |
+| `*.ast.json`                | Yes      | One per diagram                  |
+| `*.mmd`                     | Yes      | One per diagram                  |
+
+If any `*.ast.json` or `*.mmd` files are missing, check `governance/output/<PAGE_ID>/attachments/` and copy them manually.
 
 | Example Input                                      | Output Folder                                   |
 | -------------------------------------------------- | ----------------------------------------------- |
 | Page ID: `123456789`, Index: `patterns`            | `governance/indexes/patterns/123456789/`         |
 | Page ID: `987654321`, Index: `standards`           | `governance/indexes/standards/987654321/`        |
 
-After copying, **proceed to Step 9** to extract rules.
+After copying and verifying, **proceed to Step 9** to extract rules.
 
 ### Step 9: Extract Rules (Ingest Mode Only)
 
 After copying to the index, trigger the `rules-extraction-agent` to pre-extract structured rules. This enables validation agents to read a small markdown table instead of the full raw document.
 
+**⚠️ CRITICAL**: Validation agents read `_all.rules.md`, NOT per-page `rules.md`. If `_all.rules.md` does not exist after this step, downstream validation will find **zero rules**.
+
 Use the agent tool to trigger `rules-extraction-agent`:
 
 - **Agent**: `rules-extraction-agent`
-- **Prompt**: `Extract rules from governance/indexes/<index>/<PAGE_ID>/page.md for category <index>`
+- **Prompt**: `Extract rules from governance/indexes/<index>/<PAGE_ID>/page.md for category <index>. Write rules.md in the page folder AND create or update _all.rules.md at governance/indexes/<index>/_all.rules.md (create from scratch if it does not exist).`
 
 **Output**:
 
 - Rules extracted into `governance/indexes/<index>/<PAGE_ID>/rules.md`
-- Rules consolidated into `governance/indexes/<index>/_all.rules.md`
+- Rules consolidated into `governance/indexes/<index>/_all.rules.md` (created if missing)
 
 ```
 ───────────────────────────────────────────────────
@@ -455,7 +546,7 @@ Use the agent tool to trigger `rules-extraction-agent`:
 ───────────────────────────────────────────────────
 ```
 
-Wait for the rules-extraction-agent to complete before reporting final status.
+Wait for the rules-extraction-agent to complete, then **verify** that `governance/indexes/<index>/_all.rules.md` exists. If it does not, report a warning — downstream validation will fail without it.
 
 ## Verbose Logging
 
