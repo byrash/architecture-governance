@@ -1,13 +1,13 @@
 ---
 name: ingestion-agent
-description: Ingests Confluence pages by page ID, converting all diagrams to AST JSON IR + Mermaid via deterministic parsing or CV+OCR with mandatory LLM repair. Outputs per-page artifact folders (page.md, .ast.json, .mmd, manifest.json). Triggers rules-extraction-agent when indexing. Supports incremental reindex with delta detection. Use when asked to ingest, import, or fetch Confluence pages.
+description: Ingests Confluence pages by page ID, converting all diagrams and images to Mermaid. Outputs a single clean Markdown file ready for model ingestion. Use when asked to ingest, import, or fetch Confluence pages.
 model: ['Claude Sonnet 5', 'gpt-4.1']
 tools: ['read', 'edit', 'execute', 'agent', 'todo']
 ---
 
 # Ingestion Agent
 
-Ingest Confluence pages, convert all diagrams to AST JSON IR + Mermaid, and produce per-page artifact folders ready for validation. Supports incremental reindex with delta detection for changed diagrams only.
+Ingest Confluence pages and produce a single clean Markdown file with all diagrams converted to Mermaid.
 
 ## ⚠️ CRITICAL: IMAGE CONVERSION RULES
 
@@ -41,8 +41,7 @@ Ingest Confluence pages, convert all diagrams to AST JSON IR + Mermaid, and prod
 | Mode           | When              | Output                                                    |
 | -------------- | ----------------- | --------------------------------------------------------- |
 | **Governance** | No index provided | `governance/output/<PAGE_ID>/page.md` only                |
-| **Ingest**     | Index provided, first time | Full processing, copies to `governance/indexes/<index>/<PAGE_ID>/` |
-| **Reindex**    | Index provided, page already indexed | Incremental — skips unchanged images (reuses .ast.json + .mmd), re-traverses content |
+| **Ingest**     | index provided    | Also copies to `governance/indexes/<index>/<PAGE_ID>/` (page.md, metadata.json, *.ast.json, *.mmd) |
 
 ## Example Invocations
 
@@ -84,15 +83,9 @@ Ingest Confluence pages, convert all diagrams to AST JSON IR + Mermaid, and prod
 │  │                                                     │    │
 │  │  Step 2:  Download page                             │    │
 │  │       ↓                                             │    │
-│  │  [REINDEX? Delta detection]                         │    │
-│  │    ├─ Page version unchanged → STOP (no changes)    │    │
-│  │    ├─ Image hash unchanged → reuse .ast.json + .mmd │    │
-│  │    └─ Image hash changed → mark for LLM repair      │    │
-│  │       ↓                                             │    │
 │  │  Step 3:  Traverse and inline linked content        │    │
 │  │       ↓                                             │    │
-│  │  Step 4:  LLM repair image ASTs (CHANGED only)      │    │
-│  │           (skip REUSED images)                       │    │
+│  │  Step 4:  LLM repair image ASTs (mandatory)         │    │
 │  │       ↓                                             │    │
 │  │  Step 5:  Replace diagrams (LOCAL TOOL, no LLM)     │    │
 │  │           PlantUML + images + Mermaid auto-fix       │    │
@@ -158,62 +151,6 @@ If `package.json` exists at workspace root and `node_modules/` does not, run `np
 
 **Input**: `<PAGE_ID>`  
 **Output**: `governance/output/<PAGE_ID>/page.md`, `metadata.json`, `attachments/`
-
-#### Incremental Reindex Detection
-
-**Important**: The output folder (`governance/output/<PAGE_ID>/`) is freshly created on each ingestion. Previous conversion artifacts (`.ast.json`, `.mmd`) only persist in the **index** folder (`governance/indexes/<index>/<PAGE_ID>/`). When reindexing, the index is the source of truth for reusable artifacts.
-
-If an index name was provided AND `governance/indexes/<index>/<PAGE_ID>/` already exists, this is a **reindex**. Perform a smart delta check:
-
-1. **Page version check** — compare the Confluence page version:
-
-   ```bash
-   # Read existing indexed version
-   python3 -c "import json; print(json.load(open('governance/indexes/<index>/<PAGE_ID>/metadata.json'))['version'])"
-   # Read newly downloaded version
-   python3 -c "import json; print(json.load(open('governance/output/<PAGE_ID>/metadata.json'))['version'])"
-   ```
-
-   - **If versions are identical** → the page has not changed on Confluence. Log `"Page version unchanged (v<N>), skipping reindex."` and **stop here** (skip Steps 3-9, report no changes).
-   - **If versions differ** → content or attachments changed. Continue below.
-
-2. **Recover reusable artifacts from the index** — the index folder contains the results of previous LLM repair work. Read `governance/indexes/<index>/<PAGE_ID>/manifest.json` and compare with the new `governance/output/<PAGE_ID>/manifest.json`:
-
-   For each image entry where `method` = `cv_tesseract_plus_llm_repair`:
-   - Find the matching `source` filename in the indexed manifest
-   - Compare `source_hash` values (both stored in their respective manifests)
-   - **If hashes match** → image is unchanged, reuse the indexed artifacts
-
-3. **Copy reusable artifacts from INDEX → OUTPUT**:
-
-   For each image marked as reusable, copy the indexed `.ast.json` and `.mmd` into the output attachments folder so Steps 5-7 can find them:
-
-   ```bash
-   # Copy from INDEX (source of truth) to OUTPUT (working directory)
-   cp governance/indexes/<index>/<PAGE_ID>/<stem>.ast.json governance/output/<PAGE_ID>/attachments/
-   cp governance/indexes/<index>/<PAGE_ID>/<stem>.mmd governance/output/<PAGE_ID>/attachments/
-   ```
-
-   Mark these images as **REUSED** — they will be skipped in Step 4.
-   Images with changed hashes, missing indexed artifacts, or new images → mark as **CHANGED**.
-
-4. **Log the delta**:
-
-   ```
-   ───────────────────────────────────────────────────
-   📥 REINDEX DELTA: Page version v<OLD> → v<NEW>
-      Index folder: governance/indexes/<index>/<PAGE_ID>/
-      Artifacts recovered from index:
-        .ast.json files: <N>
-        .mmd files: <N>
-      Images unchanged (reused from index): <N>
-      Images changed (need LLM repair): <M>
-      Images new: <K>
-      Deterministic diagrams: handled by script cache
-   ───────────────────────────────────────────────────
-   ```
-
-If this is a **first-time index** (no existing index folder), skip delta detection — all diagrams need full processing.
 
 **NEXT → Step 3** (do NOT skip to Step 8)
 
@@ -358,27 +295,30 @@ Draw.io, SVG, and PlantUML diagrams are already converted by the script via dete
 
 Check the conversion manifest (from confluence-ingest skill output) for image entries. For each image:
 
-#### Skip REUSED images (incremental reindex)
+#### ⚠️ CV-FIRST PRINCIPLE — LLM Fills Gaps Only
 
-If Step 2 delta detection marked an image as **REUSED** (unchanged `source_hash`, `.ast.json` + `.mmd` already copied from the **index** folder into `governance/output/<PAGE_ID>/attachments/`), **skip it entirely** — no LLM repair needed. The previous LLM repair result is already in the output attachments. Log:
-
-```
-   ⏭️  Skipping <filename> (unchanged, reusing .ast.json + .mmd from index)
-```
-
-Only process images marked as **CHANGED** or **NEW** below:
+The CV/OCR partial AST is the **deterministic backbone** — it provides reproducible structure (node IDs, positions, shapes, colors, detected edges). The LLM uses vision **only to fill gaps** in the CV output: unreadable labels, missing edges, ambiguous arrows. **Do not restructure, reorder, or remove elements that CV got right.** Determinism and repeatability are the priority.
 
 #### A. Images with `partial_ast_file` (CV produced partial AST)
 
-1. Read the `.partial.ast.json` file at `governance/output/<PAGE_ID>/attachments/<stem>.partial.ast.json`
-2. Read the original image at `governance/output/<PAGE_ID>/attachments/<filename>.png`
-3. Send BOTH to the LLM with a structured prompt asking it to:
-   - Verify nodes (ids, labels)
-   - Add missing edges
-   - Confirm arrow directions
-   - Assign edge labels where appropriate
-4. LLM returns corrected AST as JSON. Save as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
-5. Run `ast_to_mermaid.py` to generate Mermaid:
+1. Read the `.partial.ast.json` at `governance/output/<PAGE_ID>/attachments/<stem>.partial.ast.json` — this is the **deterministic backbone**. Preserve its structure: node IDs, positions, shapes, colors, and edges that look correct.
+2. **Read the original image** at `governance/output/<PAGE_ID>/attachments/<filename>.png` — use vision to fill gaps in the partial AST.
+3. Walk through the partial AST and apply **only** these targeted fixes:
+
+   | Fix | When to Apply | What to Do |
+   |-----|---------------|------------|
+   | **Fill generic labels** | Node label matches `Node_\d+`, `node_\d+`, or is empty | Read the actual text from the image and replace the label. Keep the existing node ID, position, shape, and colors unchanged. |
+   | **Add missing edges** | Image shows a connection between two nodes but the partial AST has no edge for that pair | Add a new edge with source/target matching the existing node IDs. Set arrow direction and style from the image. |
+   | **Fix arrow directions** | Partial AST has an edge but the arrow points the wrong way | Flip `arrow_start`/`arrow_end` to match the image. Do not remove the edge. |
+   | **Add edge labels** | Image shows text on/near a connector but the partial AST edge has an empty label | Set the label from the image. Do not change source/target. |
+   | **Add missing nodes** | Image shows a shape that has no corresponding node in the partial AST | Add a new node. Use the next sequential ID (`node_N+1`). Read label, shape, and colors from the image. |
+   | **Fix shapes** | Partial AST says `rectangle` but image clearly shows a cylinder/diamond/circle | Change the `shape` field. Do not change ID, label, or position. |
+   | **Override wrong colors** | Partial AST color is clearly wrong (e.g., sampled background instead of fill) | Replace with the correct color from the image. |
+   | **Fix groups** | Partial AST grouping doesn't match the visual boundaries in the image | Adjust group children. Do not remove groups that look correct. |
+
+4. **Self-check**: Before saving, verify that **zero** nodes have a label matching `Node_\d+` or `node_\d+`. If any remain, re-examine the image for those specific nodes.
+5. Save the corrected AST as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
+6. Run `ast_to_mermaid.py` to generate Mermaid:
 
    ```bash
    python3 copilot/skills/confluence-ingest/ast_to_mermaid.py \
@@ -388,14 +328,46 @@ Only process images marked as **CHANGED** or **NEW** below:
 
 #### B. Images where CV failed (no partial AST)
 
-1. Read the image via vision
-2. Produce full AST JSON from scratch (nodes, edges, arrow directions, labels)
+When no partial AST exists, the LLM must build the full AST from vision. To maximise determinism:
+
+1. **Read the image via vision.**
+2. Produce AST JSON from scratch. Follow a **consistent extraction order**: scan top-to-bottom, left-to-right. Assign node IDs sequentially (`node_0`, `node_1`, ...). Use exact text from the image as labels.
 3. Save as `governance/output/<PAGE_ID>/attachments/<stem>.ast.json`
-4. Run `ast_to_mermaid.py` as above to generate Mermaid
+4. Run `ast_to_mermaid.py` as above to generate Mermaid.
 
-**LLM repair is MANDATORY** for all CHANGED/NEW image-sourced ASTs. Every non-reused image must have a final `.ast.json` before `ast_to_mermaid.py` runs.
+**LLM gap-fill repair is MANDATORY** for all image-sourced ASTs. The partial AST from CV/OCR provides the deterministic structure; the LLM fills in only what CV could not resolve. Every image must have a final `.ast.json` before `ast_to_mermaid.py` runs.
 
-After all listed images converted (or skipped as reused), proceed to Step 5.
+#### C. Eval Gate — Validate Every Repaired AST (LOCAL TOOL — NO LLM)
+
+After saving each `.ast.json` (from case A or B above), run the eval **before** generating Mermaid:
+
+```bash
+python3 copilot/skills/confluence-ingest/eval_ast.py \
+  --input governance/output/<PAGE_ID>/attachments/<stem>.ast.json \
+  --partial governance/output/<PAGE_ID>/attachments/<stem>.partial.ast.json \
+  --json
+```
+
+(Omit `--partial` for case B where no partial AST exists.)
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| **0** | All checks pass | Proceed to `ast_to_mermaid.py` |
+| **1** | Errors detected | Read the JSON output, fix **only** the flagged issues in the `.ast.json`, save, and re-run eval (max **2 retries**) |
+
+**What the eval checks (deterministic, zero LLM cost):**
+
+- **generic_labels** — Flags any node still labelled `Node_X` or `node_X`. These MUST be replaced.
+- **edge_validity** — Every edge source/target must reference an existing node ID.
+- **duplicate_edges** — No two edges may share the same source→target pair.
+- **empty_graph** — AST must have at least one node.
+- **schema** — Required fields present, valid shapes/styles/direction.
+- **orphan_nodes** *(warning)* — Nodes with zero edges. Check the image to confirm they are truly isolated.
+- **cv_drift** *(warning, only with `--partial`)* — Flags if CV nodes were removed or repositioned. Warnings here mean the deterministic backbone may have been altered.
+
+**On retry**: fix only the specific errors reported. Do not re-read the image or restructure the AST — apply the minimum targeted fix. If eval still fails after 2 retries, log the failure and proceed (downstream `replace_diagrams.py` will flag it).
+
+After all listed images pass eval (or exhaust retries), proceed to Step 5.
 
 ### Step 5: Replace Diagrams and Fix Mermaid (LOCAL TOOL — NO LLM)
 
@@ -493,7 +465,6 @@ mkdir -p governance/indexes/<index>/<PAGE_ID>/
 
 cp governance/output/<PAGE_ID>/page.md governance/indexes/<index>/<PAGE_ID>/
 cp governance/output/<PAGE_ID>/metadata.json governance/indexes/<index>/<PAGE_ID>/
-cp governance/output/<PAGE_ID>/manifest.json governance/indexes/<index>/<PAGE_ID>/
 
 # Copy AST and Mermaid artifacts from attachments
 cp governance/output/<PAGE_ID>/attachments/*.ast.json governance/indexes/<index>/<PAGE_ID>/ 2>/dev/null || true
@@ -502,13 +473,12 @@ cp governance/output/<PAGE_ID>/attachments/*.mmd governance/indexes/<index>/<PAG
 
 **Verify** the copy succeeded — list the index folder and confirm it contains:
 
-| File                        | Required | Purpose                          |
-| --------------------------- | -------- | -------------------------------- |
-| `page.md`                   | Yes      | Source document                  |
-| `metadata.json`             | Yes      | Page version for delta detection |
-| `manifest.json`             | Yes      | Diagram hashes for delta detection |
-| `*.ast.json`                | Yes      | One per diagram                  |
-| `*.mmd`                     | Yes      | One per diagram                  |
+| File              | Required |
+| ----------------- | -------- |
+| `page.md`         | Yes      |
+| `metadata.json`   | Yes      |
+| `*.ast.json`      | Yes (one per diagram) |
+| `*.mmd`           | Yes (one per diagram) |
 
 If any `*.ast.json` or `*.mmd` files are missing, check `governance/output/<PAGE_ID>/attachments/` and copy them manually.
 

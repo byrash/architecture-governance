@@ -221,19 +221,51 @@ def _group_text_into_labels(text_items: List[dict]) -> List[dict]:
 # ──────────────────────────────────────────────────────────────────
 
 def _associate_text_to_shapes(shapes: List[dict], labels: List[dict]) -> List[dict]:
-    """Assign text labels to enclosing/nearest shapes. Returns unassigned labels."""
+    """Assign text labels to enclosing/nearest shapes. Returns unassigned labels.
+
+    Two-pass strategy:
+      1. Match text whose center falls inside the shape bbox (generous padding).
+      2. For remaining text, match to the nearest shape within a proximity radius.
+    """
+    BBOX_PAD = 15
+    PROXIMITY_RADIUS = 80.0
+
     unassigned: List[dict] = []
-    for lbl in labels:
+    matched: set = set()
+
+    for idx, lbl in enumerate(labels):
         best_shape = None
         best_dist = float('inf')
         lcx, lcy = lbl['cx'], lbl['cy']
         for s in shapes:
-            if (s['x'] <= lcx <= s['x'] + s['w'] and
-                    s['y'] - 5 <= lcy <= s['y'] + s['h'] + 5):
+            if (s['x'] - BBOX_PAD <= lcx <= s['x'] + s['w'] + BBOX_PAD and
+                    s['y'] - BBOX_PAD <= lcy <= s['y'] + s['h'] + BBOX_PAD):
                 d = math.sqrt((lcx - s['cx']) ** 2 + (lcy - s['cy']) ** 2)
                 if d < best_dist:
                     best_dist = d
                     best_shape = s
+        if best_shape:
+            if best_shape['label']:
+                best_shape['label'] += ' ' + lbl['text']
+            else:
+                best_shape['label'] = lbl['text']
+            best_shape['confidence'] = max(
+                best_shape['confidence'],
+                lbl['conf'] / 100.0,
+            )
+            matched.add(idx)
+
+    for idx, lbl in enumerate(labels):
+        if idx in matched:
+            continue
+        lcx, lcy = lbl['cx'], lbl['cy']
+        best_shape = None
+        best_dist = float('inf')
+        for s in shapes:
+            d = math.sqrt((lcx - s['cx']) ** 2 + (lcy - s['cy']) ** 2)
+            if d < PROXIMITY_RADIUS and d < best_dist:
+                best_dist = d
+                best_shape = s
         if best_shape:
             if best_shape['label']:
                 best_shape['label'] += ' ' + lbl['text']
@@ -301,22 +333,36 @@ def _detect_groups(shapes: List[dict]) -> List[dict]:
 
 def _detect_edges(binary: 'np.ndarray', shapes: List[dict],
                   group_indices: set) -> List[dict]:
-    """Detect lines with HoughLinesP, match endpoints to shapes."""
-    lines = cv2.HoughLinesP(
-        binary, 1, math.pi / 180, threshold=40,
-        minLineLength=25, maxLineGap=15,
-    )
-    if lines is None:
+    """Detect lines with HoughLinesP, match endpoints to shapes.
+
+    Uses two sensitivity passes (strict then relaxed) to catch both
+    prominent connectors and lighter/shorter lines.  Endpoint-to-shape
+    tolerance scales with image diagonal so it works on both small icons
+    and high-resolution exports.
+    """
+    img_h, img_w = binary.shape[:2]
+    diag = math.sqrt(img_w ** 2 + img_h ** 2)
+    tolerance = max(60.0, diag * 0.04)
+
+    all_lines = []
+    for thresh, min_len, max_gap in [(30, 20, 20), (20, 15, 30)]:
+        lines = cv2.HoughLinesP(
+            binary, 1, math.pi / 180, threshold=thresh,
+            minLineLength=min_len, maxLineGap=max_gap,
+        )
+        if lines is not None:
+            all_lines.extend(lines.tolist())
+
+    if not all_lines:
         return []
 
-    tolerance = 40.0
     edges: List[dict] = []
     seen: set = set()
 
-    for line in lines:
+    for line in all_lines:
         x1, y1, x2, y2 = line[0]
         length = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-        if length < 20:
+        if length < 15:
             continue
 
         src_shape = None
@@ -364,16 +410,32 @@ def _detect_edges(binary: 'np.ndarray', shapes: List[dict],
 
 def _associate_labels_to_edges(edges: List[dict], unassigned_labels: List[dict],
                                shapes: List[dict]) -> None:
-    """Assign text labels near the midpoint of an edge."""
+    """Assign text labels near the midpoint of an edge.
+
+    Checks proximity to both the midpoint and the full line segment
+    so labels placed anywhere along a connector are captured.
+    """
+    EDGE_LABEL_RADIUS = 80.0
+
+    def _point_to_segment_dist(px: float, py: float,
+                               x1: float, y1: float,
+                               x2: float, y2: float) -> float:
+        dx, dy = x2 - x1, y2 - y1
+        if dx == 0 and dy == 0:
+            return math.sqrt((px - x1) ** 2 + (py - y1) ** 2)
+        t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+        proj_x, proj_y = x1 + t * dx, y1 + t * dy
+        return math.sqrt((px - proj_x) ** 2 + (py - proj_y) ** 2)
+
     for lbl in unassigned_labels:
         lcx, lcy = lbl['cx'], lbl['cy']
         best_edge = None
         best_dist = float('inf')
         for edge in edges:
-            mx = (edge['x1'] + edge['x2']) / 2
-            my = (edge['y1'] + edge['y2']) / 2
-            d = math.sqrt((lcx - mx) ** 2 + (lcy - my) ** 2)
-            if d < 60 and d < best_dist:
+            d = _point_to_segment_dist(
+                lcx, lcy, edge['x1'], edge['y1'], edge['x2'], edge['y2'],
+            )
+            if d < EDGE_LABEL_RADIUS and d < best_dist:
                 best_dist = d
                 best_edge = edge
         if best_edge:

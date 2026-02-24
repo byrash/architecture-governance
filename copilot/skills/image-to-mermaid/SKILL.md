@@ -12,11 +12,15 @@ Convert diagram images to Mermaid syntax by reading the image file and reproduci
 
 ## AST-First Image Conversion Flow
 
-The flow is: **CV → partial AST → mandatory LLM repair → final AST → Mermaid**. Follow these steps in order:
+The flow is: **CV → partial AST (guide) → mandatory LLM vision repair (authority) → final AST → Mermaid**.
 
-### Step 1: Run `image_to_ast.py` (Deterministic CV Extraction)
+### ⚠️ CV-FIRST PRINCIPLE — LLM Fills Gaps Only
 
-Produces a partial AST with confidence scores. No LLM involved.
+The CV/OCR partial AST is the **deterministic backbone** — it provides reproducible structure (node IDs, positions, shapes, colors, detected edges). The LLM uses vision **only to fill gaps**: unreadable labels, missing edges, ambiguous arrows. Do not restructure, reorder, or remove elements that CV got right. Determinism and repeatability are the priority.
+
+### Step 1: Run `image_to_ast.py` (Deterministic CV Extraction — Backbone)
+
+Produces a partial AST with confidence scores. No LLM involved. This output provides the deterministic structure that the LLM will gap-fill.
 
 ```bash
 python copilot/skills/confluence-ingest/image_to_ast.py --input <IMAGE_PATH> [--output <OUTPUT>.ast.json]
@@ -24,15 +28,48 @@ python copilot/skills/confluence-ingest/image_to_ast.py --input <IMAGE_PATH> [--
 
 Default output: `<input>.ast.json` alongside the image.
 
-### Step 2: LLM Repair (MANDATORY)
+### Step 2: LLM Gap-Fill Repair (MANDATORY — Targeted Fixes Only)
 
-Send the partial AST + the original image to the LLM. Receive a corrected AST as structured JSON. **This is not optional** — all image-sourced ASTs must be repaired by the LLM before rendering to Mermaid.
+Read the partial AST first — preserve its node IDs, positions, shapes, colors, and edges that look correct. Then read the original image and apply **only** these targeted fixes:
+
+| Fix | When to Apply | What to Do |
+|-----|---------------|------------|
+| **Fill generic labels** | Label matches `Node_\d+`, `node_\d+`, or is empty | Read the actual text from the image. Keep existing node ID, position, shape, colors. |
+| **Add missing edges** | Image shows a connection the partial AST lacks | Add edge with source/target matching existing node IDs. Set direction and style from image. |
+| **Fix arrow directions** | Edge exists but arrow points the wrong way | Flip `arrow_start`/`arrow_end`. Do not remove the edge. |
+| **Add edge labels** | Image shows text on/near a connector with empty label | Set the label. Do not change source/target. |
+| **Add missing nodes** | Image has a shape with no corresponding node in AST | Add node with next sequential ID (`node_N+1`). Read label, shape, colors from image. |
+| **Fix shapes** | AST says `rectangle` but image shows cylinder/diamond/circle | Change `shape` field only. |
+| **Override wrong colors** | AST color is clearly wrong (e.g., sampled background) | Replace with correct color from image. |
+| **Fix groups** | Grouping doesn't match visual boundaries | Adjust children. Do not remove correct groups. |
+
+**Self-check before saving**: Verify zero nodes have labels matching `Node_\d+` or `node_\d+`. If any remain, re-examine those specific nodes in the image.
 
 ### Step 3: Save Final Repaired `.ast.json`
 
 Write the LLM's corrected AST to the output path (e.g. `governance/output/<PAGE_ID>/attachments/<image>.ast.json`).
 
-### Step 4: Run `ast_to_mermaid.py` to Generate Mermaid
+### Step 4: Eval Gate (LOCAL TOOL — NO LLM)
+
+Run the deterministic eval **before** generating Mermaid:
+
+```bash
+python copilot/skills/confluence-ingest/eval_ast.py \
+  --input <REPAIRED>.ast.json \
+  --partial <PARTIAL>.ast.json \
+  --json
+```
+
+(Omit `--partial` if no partial AST exists.)
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| **0** | Pass | Proceed to Step 5 |
+| **1** | Errors | Read JSON output, fix only flagged issues, re-run eval (max 2 retries) |
+
+Checks: `generic_labels` (zero `Node_X` allowed), `edge_validity`, `duplicate_edges`, `empty_graph`, `schema`, `orphan_nodes` *(warn)*, `cv_drift` *(warn)*.
+
+### Step 5: Run `ast_to_mermaid.py` to Generate Mermaid
 
 ```bash
 python copilot/skills/confluence-ingest/ast_to_mermaid.py --input <REPAIRED>.ast.json [--output <OUTPUT>.mmd]
@@ -40,7 +77,7 @@ python copilot/skills/confluence-ingest/ast_to_mermaid.py --input <REPAIRED>.ast
 
 ### What the LLM Must Preserve in the Repaired AST
 
-When repairing the partial AST, ensure the final structure preserves ALL of the following:
+When producing the final AST from vision, ensure the structure preserves ALL of the following:
 
 | Property | What to Preserve | Mermaid Feature |
 |----------|-----------------|-----------------|
