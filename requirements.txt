@@ -23,8 +23,6 @@ Jinja2>=3.1.0
 # PowerPoint generation (for lifecycle presentation export)
 python-pptx>=1.0.0
 
-# Image pre-extraction for deterministic diagram conversion
-# (OCR text labels, color analysis, shape detection)
-Pillow>=10.0.0
-pytesseract>=0.3.10
-opencv-python>=4.8.0
+# FastAPI watcher server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0

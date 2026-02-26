@@ -269,13 +269,13 @@ def print_results(results: List[FileStatus], folder: str, as_json: bool = False,
         ]
         if stale_files:
             print()
-            print("  💡 To refresh stale rules, run in Copilot Chat:")
+            print("  💡 To refresh stale rules:")
             print()
-            print(f"    @rules-extraction-agent Refresh rules in {folder}")
+            print(f"    python -m ingest.extract_rules --folder {folder} --refresh")
             print()
             print(f"  Or re-extract the full folder:")
             print()
-            print(f"    @rules-extraction-agent Extract rules from {folder}")
+            print(f"    python -m ingest.extract_rules --folder {folder}")
 
 
 def main():

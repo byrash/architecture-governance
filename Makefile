@@ -1,6 +1,6 @@
 # Architecture Governance Makefile
 
-.PHONY: help ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules convert-plantuml
+.PHONY: help serve stop ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules extract-rules-all
 
 .DEFAULT_GOAL := help
 
@@ -11,7 +11,9 @@ help:
 	@echo "Architecture Governance"
 	@echo ""
 	@echo "Governance Commands:"
-	@echo "  make ingest PAGE_ID=123456789                  Ingest via @ingestion-agent"
+	@echo "  make serve                                     Start watcher UI (Ctrl+C to stop)"
+	@echo "  make stop                                      Kill any running governance server"
+	@echo "  make ingest PAGE_ID=123456789                  Ingest Confluence page"
 	@echo "  make ingest PAGE_ID=123456789 INDEX=patterns   Ingest to governance/indexes/<index>/<PAGE_ID>/"
 	@echo "  make validate PAGE_ID=123456789                Validate via @governance-agent"
 	@echo "  make clean                                     Clear output folder"
@@ -25,15 +27,26 @@ help:
 	@echo "  make list-skills                                         List all skills (local + external)"
 	@echo ""
 	@echo "Rules Management:"
-	@echo "  make check-rules FOLDER=governance/indexes/security/   Check <PAGE_ID>/page.md vs rules.md staleness"
-	@echo "  make check-rules-all                                   Check all index folders"
-	@echo "  make refresh-rules FOLDER=governance/indexes/security/  Show refresh instructions"
-	@echo "  make extract-rules                                      Show extraction usage"
+	@echo "  make extract-rules FOLDER=governance/indexes/security/   Extract rules for all pages in an index"
+	@echo "  make extract-rules-all                                   Extract rules across all indexes"
+	@echo "  make check-rules FOLDER=governance/indexes/security/     Check page.md vs rules.md staleness"
+	@echo "  make check-rules-all                                     Check all index folders"
+	@echo "  make refresh-rules FOLDER=governance/indexes/security/   Re-extract only stale/missing rules"
 	@echo ""
-	@echo "Conversion Tools:"
-	@echo "  make convert-plantuml FILE=path/to/file.md              Convert PlantUML to Mermaid"
+	@echo "Validation runs via GitHub Copilot agents in VS Code Chat."
+
+serve:
+	@if [ ! -f .env ]; then echo "Error: .env not found. Run: cp .env.example .env"; exit 1; fi
+	@echo "Starting Architecture Governance server..."
+	@echo "Server will run at http://localhost:8000"
+	@echo "Press Ctrl+C to stop."
 	@echo ""
-	@echo "All governance commands trigger agents via Copilot CLI in Docker."
+	@(sleep 2 && (open http://localhost:8000 2>/dev/null || xdg-open http://localhost:8000 2>/dev/null || true)) &
+	@python3 -m server.app
+
+stop:
+	@echo "Stopping any running governance servers..."
+	@pkill -f 'python.*server\.app' 2>/dev/null && echo "Server stopped." || echo "No server running."
 
 ingest:
 	@if [ ! -f .env ]; then echo "Error: .env not found. Run: cp .env.example .env"; exit 1; fi
@@ -43,7 +56,7 @@ ifndef PAGE_ID
 endif
 	@echo "Building Docker image..."
 	@docker build -t $(DOCKER_IMAGE) .
-	@echo "Triggering @ingestion-agent..."
+	@echo "Triggering ingestion pipeline..."
 ifdef INDEX
 	@PAGE_ID=$(PAGE_ID) docker-compose run --rm governance ingest $(INDEX)
 else
@@ -139,42 +152,16 @@ endif
 	@rm -rf .git/modules/governance/external/$(NAME)
 	@echo "Done. Skill '$(NAME)' removed."
 
-convert-plantuml:
-	@if [ -z "$(FILE)" ]; then \
-		echo "Usage: make convert-plantuml FILE=path/to/file.md"; \
-		echo "  Converts all PlantUML blocks in a Markdown or .puml file to Mermaid."; \
-		exit 1; \
-	fi
-	python3 copilot/skills/confluence-ingest/plantuml_to_mermaid.py --input $(FILE) --output $(FILE)
-
 extract-rules:
-	@echo "═══════════════════════════════════════════"
-	@echo " Rules Extraction"
-	@echo "═══════════════════════════════════════════"
-	@echo ""
-	@echo "Use the rules-extraction-agent in Copilot Chat:"
-	@echo ""
-	@echo "  Batch mode (entire index folder):"
-	@echo "    @rules-extraction-agent Extract rules from governance/indexes/security/"
-	@echo "    @rules-extraction-agent Extract rules from governance/indexes/patterns/"
-	@echo "    @rules-extraction-agent Extract rules from governance/indexes/standards/"
-	@echo ""
-	@echo "  Single page mode:"
-	@echo "    @rules-extraction-agent Extract rules from governance/indexes/security/<PAGE_ID>/page.md for category security"
-	@echo ""
-	@echo "  Output (per-page folder layout):"
-	@echo "    Per-page:      <PAGE_ID>/rules.md  (one per page.md in subfolder)"
-	@echo "    Consolidated:  _all.rules.md       (merged, deduplicated)"
-	@echo ""
-	@if ls governance/indexes/*/_all.rules.md 2>/dev/null; then \
-		echo "  Existing consolidated rules:"; \
-		for f in governance/indexes/*/_all.rules.md; do \
-			lines=$$(wc -l < "$$f" 2>/dev/null || echo 0); \
-			echo "    $$f ($$lines lines)"; \
-		done; \
-	else \
-		echo "  No consolidated rules files found yet."; \
-	fi
+ifndef FOLDER
+	@echo "Error: FOLDER required."
+	@echo "Usage: make extract-rules FOLDER=governance/indexes/security/"
+	@exit 1
+endif
+	@python3 -m ingest.extract_rules --folder $(FOLDER)
+
+extract-rules-all:
+	@python3 -m ingest.extract_rules --all
 
 check-rules:
 ifndef FOLDER
@@ -193,11 +180,7 @@ ifndef FOLDER
 	@echo "Usage: make refresh-rules FOLDER=governance/indexes/security/"
 	@exit 1
 endif
-	@echo "Checking staleness in $(FOLDER)..."
-	@python3 copilot/skills/rules-extract/rules_check.py --folder $(FOLDER) --fix || true
-	@echo ""
-	@echo "To refresh stale rules, run in Copilot Chat:"
-	@echo "  @rules-extraction-agent Refresh rules in $(FOLDER)"
+	@python3 -m ingest.extract_rules --folder $(FOLDER) --refresh
 
 list-skills:
 	@echo "Skills:"

@@ -1,10 +1,30 @@
 ---
 name: rules-extract
 category: utility
-description: Extract structured governance rules from raw indexed documents into compact markdown-table format. Supports single-file and batch-folder extraction. Use when asked to extract rules, build rule index, or create .rules.md files from architecture documents.
+description: Deterministic CLI tool to extract structured governance rules from raw indexed documents into compact markdown-table format. Runs automatically during index-mode ingestion (zero LLM). Use when asked to extract rules, build rule index, or create .rules.md files from architecture documents.
 ---
 
-# Rules Extraction
+# Rules Extraction (Deterministic CLI)
+
+Rules extraction is a **deterministic CLI tool** (`python -m ingest.extract_rules`), not an agent. It runs automatically during index-mode ingestion (zero LLM). Use the CLI directly when you need to run rules extraction manually.
+
+## CLI Usage
+
+```bash
+# Batch: all pages in an index folder
+python -m ingest.extract_rules --folder governance/indexes/security/
+
+# Batch with refresh: only process stale pages
+python -m ingest.extract_rules --folder governance/indexes/security/ --refresh
+
+# Single page
+python -m ingest.extract_rules --page 123 --index security
+
+# All indexes
+python -m ingest.extract_rules --all
+```
+
+## Input
 
 Extract structured governance rules from raw architecture documents and save as compact `.rules.md` files for efficient validation.
 
@@ -42,7 +62,7 @@ Write to `<PAGE_ID>/rules.md` inside the index (same subfolder as `page.md`).
 - Security controls (e.g., "encryption at rest required")
 
 ### Implicit Rules (from diagrams and architecture)
-- Architectural constraints implied by Mermaid diagrams
+- Architectural constraints implied by AST tables (embedded diagrams)
 - Integration patterns (e.g., all external calls go through API gateway)
 - Technology choices shown in diagrams
 - Data flow restrictions
@@ -56,7 +76,7 @@ Write to `<PAGE_ID>/rules.md` inside the index (same subfolder as `page.md`).
 
 ## Diagram Interpretation Guide
 
-When reading Mermaid diagrams, extract governance rules from:
+When reading AST tables (embedded diagram data), extract governance rules from:
 
 | Diagram Element | What to Infer |
 |-----------------|---------------|
@@ -70,7 +90,7 @@ When reading Mermaid diagrams, extract governance rules from:
 
 ### Example: Inferring rules from a diagram
 
-Given this Mermaid diagram in the document:
+Given this diagram data in the document:
 
 ```mermaid
 flowchart TB
@@ -157,7 +177,7 @@ The `Fingerprint` field contains the first 12 characters of the MD5 hash of the 
 python3 -c "import hashlib; print(hashlib.md5(open('<source-path>','rb').read(65536)).hexdigest()[:12])"
 ```
 
-Or let the rules-extraction-agent compute it using the execute tool.
+The CLI tool computes this automatically.
 
 Rules:
 - **ID**: Sequential `R-001`, `R-002`, etc.

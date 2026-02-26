@@ -10,6 +10,9 @@ governance/output/*
 # Conversion cache (SHA256-keyed, regenerated on ingest)
 governance/output/.cache/
 
+# Watcher server runtime state
+governance/watcher_state.json
+
 # Constructed .github directory (created at runtime in Docker)
 # Allow symlinks for VS Code/IDE compatibility
 .github/*

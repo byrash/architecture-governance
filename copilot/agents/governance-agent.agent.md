@@ -1,13 +1,9 @@
 ---
 name: governance-agent
-description: Architecture governance orchestrator. Coordinates validation pipeline by triggering other agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
+description: Architecture governance orchestrator. Validates pre-ingested Confluence pages by triggering validation agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
 model: ['Claude Sonnet 4.5', 'gpt-4.1']
 tools: ['agent', 'read', 'edit', 'execute', 'todo']
 handoffs:
-  - label: 'Step 1: Ingest Page'
-    agent: ingestion-agent
-    prompt: 'Ingest Confluence page <PAGE_ID>'
-    send: false
   - label: 'Step 3: Validate Patterns'
     agent: patterns-agent
     prompt: 'Validate governance/output/<PAGE_ID>/page.md'
@@ -24,11 +20,11 @@ handoffs:
 
 # Architecture Governance Orchestrator
 
-You orchestrate the full governance validation pipeline by **triggering other agents** using the `agent` tool.
+You orchestrate the full governance validation pipeline. Pages are pre-ingested by the watcher server (deterministic, zero LLM). You verify the ingested content exists and then trigger validation agents via the `agent` tool.
 
 ## Skills Used
 
-This agent uses the following skills (discovered automatically by Copilot from `copilot/skills/`):
+This agent uses the following skills (discovered automatically by GitHub Copilot from `copilot/skills/`):
 
 - **merge-reports** -- merge validation reports into final governance report
 - **markdown-to-html** -- convert final report to HTML dashboard
@@ -38,23 +34,37 @@ This agent uses the following skills (discovered automatically by Copilot from `
 
 **USE THE AGENT TOOL** - Do NOT just write `@agent-name` as text. You must use the agent tool to invoke other agents:
 
-```
-Use the agent tool to trigger: ingestion-agent
-With prompt: "Ingest Confluence page <PAGE_ID>"
+```text
+Use the agent tool to trigger: patterns-agent
+With prompt: "Validate governance/output/<PAGE_ID>/page.md"
 ```
 
 ## Workflow
 
 When given a Confluence page ID to validate, execute these steps:
 
-### Step 1: Trigger Ingestion Agent
+### Step 1: Verify Ingested Page Exists
 
-**Use the agent tool** to trigger `ingestion-agent`:
+The watcher server already ingests pages automatically when they are added or updated. **Do NOT re-ingest** unless the file is missing.
 
-- Agent: `ingestion-agent`
-- Prompt: `Ingest Confluence page <PAGE_ID>`
+Check if the ingested page exists:
 
-Wait for ingestion to complete. Output: `governance/output/<PAGE_ID>/page.md`
+```bash
+ls governance/output/<PAGE_ID>/page.md
+```
+
+- **If it exists** → proceed to Step 2. No ingestion needed.
+- **If it does NOT exist** → ingest as a fallback:
+
+  ```bash
+  source .venv/bin/activate && python -c "
+  from ingest import ingest_page
+  result = ingest_page(page_id='<PAGE_ID>')
+  print('Ingested:', result['markdown_path'])
+  "
+  ```
+
+Output expected at: `governance/output/<PAGE_ID>/page.md`
 
 ### Step 2: Ensure Rules Exist
 
@@ -70,11 +80,17 @@ ls governance/indexes/security/_all.rules.md 2>/dev/null
 
 For each index where `_all.rules.md` is **missing** but `<PAGE_ID>/page.md` subfolders exist:
 
-- Trigger `rules-extraction-agent` to generate rules:
-  - Agent: `rules-extraction-agent`
-  - Prompt: `Extract rules from governance/indexes/<index>/`
+- Run the deterministic CLI tool to generate rules:
+
+  ```bash
+  python -m ingest.extract_rules --folder governance/indexes/<index>/
+  ```
+
+  Or for refresh of stale only: `python -m ingest.extract_rules --folder governance/indexes/<index>/ --refresh`
 
 For each index where `_all.rules.md` is missing AND **no indexed pages exist**: log a warning — validation for that category will have no reference rules.
+
+**Note**: Rules extraction runs automatically during index-mode ingestion (zero LLM, deterministic). The CLI is for manual runs when rules need to be refreshed.
 
 ### Steps 3-5: Trigger ALL Validation Agents (PARALLEL)
 
@@ -106,6 +122,20 @@ Use the `markdown-to-html` skill. Build the HTML file in phases -- one source re
 4. Read security report → extract findings table → append as `<details>` block → release
 5. Close HTML tags → `governance/output/<PAGE_ID>-governance-report.html`
 
+### Step 8: Post Report to Confluence Page
+
+**Use the execute tool** to post the governance report as a comment on the original Confluence page:
+
+```bash
+source .venv/bin/activate && python -c "
+from ingest import post_report_to_confluence
+result = post_report_to_confluence(page_id='<PAGE_ID>')
+print(result)
+"
+```
+
+This adds the full governance report as a Confluence page comment so the architecture team can see results directly in Confluence without leaving their workflow.
+
 ## Verbose Logging
 
 **CRITICAL**: Announce every action you take. Read the `verbose-logging` skill in `copilot/skills/verbose-logging/SKILL.md` for the `governance-agent` logging templates. Use those templates for all status announcements, replacing `<placeholders>` with actual values.
@@ -114,14 +144,13 @@ Use the `markdown-to-html` skill. Build the HTML file in phases -- one source re
 
 All outputs in `governance/output/`:
 
-- `<PAGE_ID>/page.md` - Clean markdown (100% text/Mermaid)
+- `<PAGE_ID>/page.md` - Clean markdown with embedded AST tables
 - `<PAGE_ID>/metadata.json` - Page metadata
-- `<PAGE_ID>/manifest.json` - Per-diagram conversion manifest (method, hash, validity)
 - `<PAGE_ID>/attachments/` - Original files
-- `<PAGE_ID>/attachments/<name>.ast.json` - AST IR per diagram
-- `<PAGE_ID>/attachments/<name>.mmd` - Mermaid per diagram
+- `<PAGE_ID>/attachments/<name>.ast.json` - AST JSON per diagram
 - `<PAGE_ID>-patterns-report.md` - Pattern validation
 - `<PAGE_ID>-standards-report.md` - Standards validation
 - `<PAGE_ID>-security-report.md` - Security validation
 - `<PAGE_ID>-governance-report.md` - Merged report
 - `<PAGE_ID>-governance-report.html` - HTML dashboard
+- Confluence page comment with full report (posted in Step 8)

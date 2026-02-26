@@ -26,29 +26,21 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Node.js deps (Mermaid CLI for syntax validation)
-npm install
-
-# System deps: Tesseract OCR + OpenCV (for CV+OCR AST extraction)
-# macOS: brew install tesseract
-# Ubuntu: sudo apt-get install tesseract-ocr
-# pip install opencv-python-headless pytesseract
-
 # 3. Use agents (venv auto-activates, .env auto-loads)
 
 # Ingest a Confluence page to an index
-@ingestion-agent Ingest Confluence page 123456789 to security
+python ingest/confluence_ingest.py --page-id 123456789 --index security
 
 # Full governance validation (ingest + patterns + standards + security)
 @governance-agent Validate Confluence page 123456789
 
-# Extract governance rules from an index folder
-@rules-extraction-agent Extract rules from governance/indexes/security/
+# Extract governance rules for all pages in an index
+make extract-rules FOLDER=governance/indexes/security/
 
 # Refresh only stale rules (after source .md files change)
-@rules-extraction-agent Refresh rules in governance/indexes/security/
+make refresh-rules FOLDER=governance/indexes/security/
 
-# Check which rules are stale (CLI, no agent)
+# Check which rules are stale
 make check-rules FOLDER=governance/indexes/security/
 
 # Validate directly with a single agent
@@ -62,9 +54,9 @@ make check-rules FOLDER=governance/indexes/security/
 ```mermaid
 flowchart TB
     subgraph User[User Entry Points]
-        U1["@ingestion-agent\nIngest page to index"]
+        U1["CLI / Watcher\nIngest page to index"]
         U2["@governance-agent\nValidate page"]
-        U3["@rules-extraction-agent\nExtract / refresh rules"]
+        U3["CLI\nExtract / refresh rules"]
         U4["@patterns-agent / @standards-agent / @security-agent\nDirect validation"]
     end
 
@@ -73,19 +65,18 @@ flowchart TB
     end
 
     subgraph Ingestion[Ingestion Pipeline]
-        IA[ingestion-agent]
-        REA[rules-extraction-agent]
-        subgraph Cascade[AST-First Conversion Cascade]
+        IA[ingest/ package]
+        RE[extract_rules]
+        subgraph Cascade[Deterministic Conversion Cascade]
             direction TB
-            T1["1. Draw.io XML → AST → Mermaid ✅"]
-            T2["2. SVG XML → AST → Mermaid ✅"]
+            T1["1. Draw.io XML → AST → tables ✅"]
+            T2["2. SVG XML → AST → tables ✅"]
             T3["3. Mermaid macro ✅ passthrough"]
             T4["4. Markdown macro ✅ passthrough"]
             T5["5. Code/NoFormat ✅ passthrough"]
-            T6["6. PlantUML → AST → Mermaid ✅"]
+            T6["6. PlantUML → AST → tables ✅"]
             T7["7. Cache (SHA256) ✅ reuse"]
-            T8["8. CV+OCR → partial AST → LLM repair → Mermaid"]
-            T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7 --> T8
+            T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7
         end
     end
 
@@ -95,9 +86,12 @@ flowchart TB
         SEA[security-agent]
     end
 
+    subgraph IngestPkg[Ingest Package - Deterministic]
+        IngPkg["ingest/\n  confluence_ingest.py\n  diagram_ast.py\n  drawio_to_ast.py\n  svg_to_ast.py\n  plantuml_to_ast.py"]
+    end
+
     subgraph SkillsPool[Skills - Auto-Discovered by Category]
         direction LR
-        IngSkills["ingestion\nconfluence-ingest\n  diagram_ast.py\n  ast_to_mermaid.py\n  drawio_to_mermaid.py\n  plantuml_to_mermaid.py\n  svg_to_mermaid.py\n  image_to_ast.py\n  replace_diagrams.py\n  validate_mermaid.py\nimage-to-mermaid"]
         PatSkills["patterns\npattern-validate"]
         StdSkills["standards\nstandards-validate"]
         SecSkills["security\nsecurity-validate\n+ external skills"]
@@ -107,7 +101,7 @@ flowchart TB
 
     subgraph Storage
         CONF[(Confluence)]
-        IDX[("Indexes\n<PAGE_ID>/page.md\n<PAGE_ID>/rules.md\n<PAGE_ID>/*.ast.json\n_all.rules.md")]
+        IDX[("Indexes\n<PAGE_ID>/page.md\n<PAGE_ID>/rules.md\n_all.rules.md")]
         OUT[(Output)]
         EXT[(External\nSubmodules)]
     end
@@ -115,7 +109,7 @@ flowchart TB
     %% User triggers
     U1 -->|page-id + index| IA
     U2 -->|page-id| GA
-    U3 -->|folder / file| REA
+    U3 -->|folder| RE
     U4 -->|page.md path| PA & SA & SEA
     GA -->|step 1| IA
     GA -->|step 3| PA
@@ -123,15 +117,15 @@ flowchart TB
     GA -->|step 5| SEA
 
     %% Ingestion triggers rules extraction
-    IA -->|"after index"| REA
+    IA -->|"after index"| RE
 
     %% Ingestion uses conversion cascade
     IA --> Cascade
 
     %% Discovery: agents discover skills by category
-    IA -->|discovers| IngSkills
+    IA -->|uses| IngPkg
     IA -->|discovers| UtilSkills
-    REA -->|discovers| UtilSkills
+    RE -->|discovers| UtilSkills
     PA -->|discovers| PatSkills
     PA -->|discovers| UtilSkills
     SA -->|discovers| StdSkills
@@ -141,12 +135,12 @@ flowchart TB
     GA -->|discovers| RepSkills
 
     %% Storage flow
-    IngSkills <-->|download| CONF
+    IngPkg <-->|download| CONF
     UtilSkills <-->|"read/write .rules.md"| IDX
     SecSkills <-.->|symlink| EXT
     IA -->|page.md| OUT
     IA -->|indexed .md| IDX
-    REA -->|.rules.md| IDX
+    RE -->|.rules.md| IDX
     PA -->|report| OUT
     SA -->|report| OUT
     SEA -->|report| OUT
@@ -160,11 +154,9 @@ Agents auto-discover skills by `category` tag in SKILL.md frontmatter. No agent 
 | Agent | Purpose | Discovers Categories | User-Invokable |
 |-------|---------|---------------------|----------------|
 | **governance-agent** | Orchestrates full validation pipeline | `reporting` | Yes |
-| **ingestion-agent** | Downloads Confluence pages, converts ALL diagrams to AST IR + Mermaid | `ingestion` + `utility` | Yes |
 | **patterns-agent** | Validates against design patterns | `patterns` + `utility` | Yes |
 | **standards-agent** | Validates against architectural standards | `standards` + `utility` | Yes |
 | **security-agent** | Validates against security controls | `security` + `utility` | Yes |
-| **rules-extraction-agent** | Extracts governance rules from markdown into `.rules.md` tables | `utility` | Yes |
 
 ## Agent Reference
 
@@ -182,24 +174,15 @@ Internally triggers:
 
 | Step | Agent Called | Prompt Sent |
 |------|-------------|-------------|
-| 1 | ingestion-agent | `Ingest Confluence page <PAGE_ID>` |
-| 2 | (self) | Ensure `_all.rules.md` exists in each index (trigger rules-extraction-agent if missing) |
+| 1 | (deterministic) | `python -c "from ingest import ingest_page; ingest_page(page_id='<PAGE_ID>')"` |
+| 2 | (deterministic) | `python -m ingest.extract_rules --folder governance/indexes/<index>/` (ensure `_all.rules.md` exists) |
 | 3 | patterns-agent | `Validate governance/output/<PAGE_ID>/page.md` |
 | 4 | standards-agent | `Validate governance/output/<PAGE_ID>/page.md` |
 | 5 | security-agent | `Validate governance/output/<PAGE_ID>/page.md` |
 | 6 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
 | 7 | (self) | Generate HTML dashboard (markdown-to-html skill) |
 
-### ingestion-agent
-
-Downloads a Confluence page by ID, converts all diagrams to AST JSON IR + Mermaid (via deterministic parsing or CV+OCR with mandatory LLM repair for images), outputs a clean markdown file with per-page artifact folders. Triggers rules-extraction-agent when indexing.
-
-| Task | Prompt |
-|------|--------|
-| Ingest only (no index) | `@ingestion-agent Ingest Confluence page 123456789` |
-| Ingest to patterns index | `@ingestion-agent Ingest Confluence page 123456789 to patterns` |
-| Ingest to standards index | `@ingestion-agent Ingest Confluence page 123456789 to standards` |
-| Ingest to security index | `@ingestion-agent Ingest Confluence page 123456789 to security` |
+Ingestion is done deterministically via the `ingest/` Python package. Use the CLI (`python ingest/confluence_ingest.py --page-id <PAGE_ID> --index <security|patterns|standards>`) or the watcher server (`make serve`) to ingest pages.
 
 ### patterns-agent
 
@@ -225,24 +208,26 @@ Validates a document against all security documents in the index. Typically call
 @security-agent Validate governance/output/123456789/page.md
 ```
 
-### rules-extraction-agent
+### Rules Extraction (Deterministic CLI)
 
-Extracts structured governance rules from markdown documents into compact `.rules.md` table files. User-invokable with three modes.
-
-| Mode | Prompt | What It Does |
-|------|--------|--------------|
-| Batch (full folder) | `@rules-extraction-agent Extract rules from governance/indexes/security/` | Scans `<PAGE_ID>/` subfolders, extracts rules from `page.md` + `*.ast.json`, produces `<PAGE_ID>/rules.md` + consolidated `_all.rules.md` |
-| Batch with category | `@rules-extraction-agent Extract rules from governance/indexes/patterns/ for category patterns` | Same as above, with explicit category |
-| Arbitrary folder | `@rules-extraction-agent Extract rules from /path/to/team-docs/` | Process any folder of markdown files |
-| Refresh (incremental) | `@rules-extraction-agent Refresh rules in governance/indexes/security/` | Only re-extract rules for files that changed since last extraction |
-| Check status (dry run) | `@rules-extraction-agent Check rules status in governance/indexes/security/` | Report which files are stale without re-extracting |
-| Single file | `@rules-extraction-agent Extract rules from governance/indexes/security/123456789/page.md for category security` | Extract rules from one page folder |
-
-**Rules staleness check** (CLI, no agent needed):
+Extracts structural governance rules from DiagramAST data into `.rules.md` table files. Zero LLM — runs as deterministic Python tooling. Automatically invoked during index-mode ingestion; also callable standalone.
 
 ```bash
-make check-rules FOLDER=governance/indexes/security/   # Check one folder
-make check-rules-all                                    # Check all index folders
+# Batch: extract rules for all pages in an index folder
+python -m ingest.extract_rules --folder governance/indexes/security/
+
+# Refresh: only re-extract stale/missing pages
+python -m ingest.extract_rules --folder governance/indexes/security/ --refresh
+
+# Single page
+python -m ingest.extract_rules --page 123456789 --index security
+
+# All indexes
+python -m ingest.extract_rules --all
+
+# Check staleness (no extraction)
+make check-rules FOLDER=governance/indexes/security/
+make check-rules-all
 ```
 
 ## Workflows
@@ -252,54 +237,52 @@ make check-rules-all                                    # Check all index folder
 Add architecture documents to your knowledge base:
 
 ```
-@ingestion-agent Ingest Confluence page 123456789 to patterns
-@ingestion-agent Ingest Confluence page 123456789 to standards
-@ingestion-agent Ingest Confluence page 123456789 to security
+python ingest/confluence_ingest.py --page-id 123456789 --index patterns
+python ingest/confluence_ingest.py --page-id 123456789 --index standards
+python ingest/confluence_ingest.py --page-id 123456789 --index security
 ```
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant IA as ingestion-agent
-    participant REA as rules-extraction-agent
+    participant IA as ingest/ pipeline
+    participant RE as extract_rules
     participant Confluence
     participant Index
 
     User->>IA: Ingest page 123 to patterns
     IA->>Confluence: Download page + attachments
 
-    Note over IA: AST-First Conversion Cascade
-    IA->>IA: 1. Draw.io XML → AST → .ast.json + Mermaid
-    IA->>IA: 2. SVG XML → AST → .ast.json + Mermaid
+    Note over IA: Deterministic Conversion Cascade
+    IA->>IA: 1. Draw.io XML → AST → .ast.json + tables
+    IA->>IA: 2. SVG XML → AST → .ast.json + tables
     IA->>IA: 3. Extract Mermaid macros (passthrough)
     IA->>IA: 4. Extract Markdown macros (passthrough)
     IA->>IA: 5. Extract Code/NoFormat macros (passthrough)
-    IA->>IA: 6. PlantUML → AST → .ast.json + Mermaid
+    IA->>IA: 6. PlantUML → AST → .ast.json + tables
     IA->>IA: 7. Check SHA256 cache
-    IA->>IA: 8. CV+OCR → partial AST → mandatory LLM repair → Mermaid
 
-    Note over IA: Validate all Mermaid via mmdc
-    IA->>IA: Write manifest.json (with ast_file per diagram)
-    IA->>Index: Copy to indexes/patterns/<PAGE_ID>/ folder
-    IA->>REA: Extract rules from indexed page + AST files
-    REA->>Index: Write <PAGE_ID>/rules.md + _all.rules.md
-    REA-->>IA: Rules extracted
-    IA-->>User: Indexed + rules extracted
+    IA->>IA: Embed AST tables in page.md
+    IA->>Index: Copy to indexes/patterns/<PAGE_ID>/
+    IA->>IA: Extract structural rules from ASTs (deterministic)
+    IA->>Index: Write <PAGE_ID>/rules.md
+    IA->>Index: Create/update _all.rules.md
+    IA-->>User: Indexed + rules extracted (zero LLM)
 ```
 
 ### 2. Reindex (Incremental)
 
-Re-ingest a page that was previously indexed. Only changed diagrams are reprocessed — unchanged images reuse existing `.ast.json` + `.mmd` from the index, skipping expensive LLM repair.
+Re-ingest a page that was previously indexed. Only changed diagrams are reprocessed — unchanged files reuse cached `.ast.json` from the SHA256 cache.
 
 ```
-@ingestion-agent Ingest Confluence page 123456789 to patterns
+python ingest/confluence_ingest.py --page-id 123456789 --index patterns
 ```
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant IA as ingestion-agent
-    participant REA as rules-extraction-agent
+    participant IA as ingest/ pipeline
+    participant RE as extract_rules
     participant Index
 
     User->>IA: Ingest page 123 to patterns (reindex)
@@ -310,17 +293,12 @@ sequenceDiagram
     alt Page version unchanged
         IA-->>User: No changes, skipping reindex
     else Page version changed
-        IA->>Index: Read manifest.json (source_hash per diagram)
-        IA->>IA: Compare image hashes (new vs indexed)
-        Index-->>IA: Copy unchanged .ast.json + .mmd to output
-        Note over IA: Only LLM-repair CHANGED images
-        IA->>IA: Deterministic cascade (cache hits for unchanged)
-        IA->>IA: LLM repair (changed images only)
-        IA->>IA: replace_diagrams.py (all diagrams)
+        IA->>IA: SHA256 cache lookup per diagram
+        IA->>IA: Deterministic cascade (reuse cached AST)
+        IA->>IA: Embed AST tables in page.md
         IA->>Index: Copy updated artifacts to index
-        IA->>REA: Extract rules
-        REA->>Index: Update rules.md + _all.rules.md
-        REA-->>IA: Done
+        IA->>RE: Extract structural rules (deterministic)
+        RE->>Index: Update rules.md + _all.rules.md
         IA-->>User: Reindexed (N reused, M changed)
     end
 ```
@@ -337,43 +315,42 @@ Run full governance validation:
 sequenceDiagram
     participant User
     participant GA as governance-agent
-    participant IA as ingestion-agent
-    participant REA as rules-extraction-agent
+    participant IA as ingest/ pipeline
+    participant RE as extract_rules
     participant PA as patterns-agent
     participant SA as standards-agent
     participant SEA as security-agent
 
     User->>GA: Validate page 123456789
     
-    Note over GA,REA: Step 1: Ingestion
+    Note over GA,RE: Step 1: Ingestion
     GA->>IA: Ingest page
     IA->>IA: Download from Confluence
     IA->>IA: Deterministic cascade (Draw.io/SVG/macros/PlantUML/cache)
-    IA->>IA: CV+OCR → partial AST → mandatory LLM repair
-    IA->>IA: Validate all Mermaid via mmdc
-    IA-->>GA: page.md ready (AST + Mermaid for all diagrams)
+    IA->>IA: Embed AST tables in page.md
+    IA-->>GA: page.md ready (AST tables for all diagrams)
 
-    Note over GA,REA: Step 2: Ensure Rules Exist
+    Note over GA,RE: Step 2: Ensure Rules Exist
     GA->>GA: Check _all.rules.md in each index
     opt missing but indexed pages exist
-        GA->>REA: Extract rules from index
-        REA-->>GA: _all.rules.md written
+        GA->>RE: Extract rules (deterministic CLI)
+        RE-->>GA: _all.rules.md written
     end
 
     Note over GA,SEA: Steps 3-5: Parallel Validation
     par patterns
         GA->>PA: Validate patterns
-        PA->>PA: Read _all.rules.md + AST files
+        PA->>PA: Read _all.rules.md + page.md (with AST tables)
         PA->>PA: Check rules (text + AST Condition)
         PA-->>GA: patterns-report.md
     and standards
         GA->>SA: Validate standards
-        SA->>SA: Read _all.rules.md + AST files
+        SA->>SA: Read _all.rules.md + page.md (with AST tables)
         SA->>SA: Check rules (text + AST Condition)
         SA-->>GA: standards-report.md
     and security
         GA->>SEA: Validate security
-        SEA->>SEA: Read _all.rules.md + AST files
+        SEA->>SEA: Read _all.rules.md + page.md (with AST tables)
         SEA->>SEA: Check rules (text + AST Condition)
         SEA-->>GA: security-report.md
     end
@@ -394,7 +371,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-# Required for Docker (Copilot CLI)
+# Required for Docker (GitHub Copilot)
 COPILOT_TOKEN=your-github-token
 
 # Required for Confluence access
@@ -403,7 +380,7 @@ CONFLUENCE_API_TOKEN=your-personal-access-token
 ```
 
 Get tokens:
-- **COPILOT_TOKEN**: https://github.com/settings/tokens (needs `copilot` scope)
+- **COPILOT_TOKEN**: https://github.com/settings/tokens (needs `copilot` scope for GitHub Copilot agents)
 - **CONFLUENCE_API_TOKEN**: https://id.atlassian.com/manage-profile/security/api-tokens
 
 ### Finding Page ID
@@ -412,7 +389,7 @@ From URL: `https://company.atlassian.net/wiki/spaces/SPACE/pages/123456789/Title
 
 Page ID = `123456789`
 
-### IDE Setup (VS Code / Cursor)
+### IDE Setup (VS Code)
 
 The agents are stored in `copilot/` for Docker compatibility, but VS Code expects them in `.github/agents/`. Symlinks are provided:
 
@@ -447,7 +424,7 @@ ln -sf ../copilot/skills .github/skills
 | Check all rules | `make check-rules-all` |
 | Refresh rules (show instructions) | `make refresh-rules FOLDER=governance/indexes/security/` |
 | Extract rules (show instructions) | `make extract-rules` |
-| Convert PlantUML to Mermaid | `make convert-plantuml FILE=path/to/file.md` |
+| Start watcher server | `make serve` |
 | Add external skill | `make add-skill REPO=<url> NAME=<name>` |
 | Add external skill (nested) | `make add-skill REPO=<url> NAME=<name> SKILL_PATH=<path>` |
 | Update external skills | `make update-skills` |
@@ -458,10 +435,7 @@ ln -sf ../copilot/skills .github/skills
 
 | Task | Command |
 |------|---------|
-| Ingest page (no index) | `@ingestion-agent Ingest Confluence page 123456789` |
-| Ingest to patterns index | `@ingestion-agent Ingest Confluence page 123456789 to patterns` |
-| Ingest to standards index | `@ingestion-agent Ingest Confluence page 123456789 to standards` |
-| Ingest to security index | `@ingestion-agent Ingest Confluence page 123456789 to security` |
+| Ingest page | `python ingest/confluence_ingest.py --page-id 123456789 --index security` |
 | Full validation | `@governance-agent Validate Confluence page 123456789` |
 
 ## Output
@@ -470,12 +444,10 @@ All outputs saved to `governance/output/`:
 
 | File | Description |
 |------|-------------|
-| `<PAGE_ID>/page.md` | Clean markdown with ALL diagrams as Mermaid (100% text) |
+| `<PAGE_ID>/page.md` | Clean markdown with embedded AST tables for all diagrams (100% text) |
 | `<PAGE_ID>/metadata.json` | Page metadata from Confluence |
 | `<PAGE_ID>/attachments/` | Original downloaded files |
-| `<PAGE_ID>/attachments/<name>.ast.json` | AST IR per diagram (canonical semantic representation) |
-| `<PAGE_ID>/attachments/<name>.mmd` | Mermaid per diagram (generated from AST) |
-| `<PAGE_ID>/manifest.json` | Per-diagram: method, ast_file, mermaid_file, validity |
+| `<PAGE_ID>/attachments/<name>.ast.json` | AST JSON per diagram (canonical semantic representation) |
 | `<PAGE_ID>-patterns-report.md` | Pattern validation results |
 | `<PAGE_ID>-standards-report.md` | Standards validation results |
 | `<PAGE_ID>-security-report.md` | Security validation results |
@@ -485,35 +457,36 @@ All outputs saved to `governance/output/`:
 ## Project Structure
 
 ```
-.github/                        # Symlinks for VS Code/IDE
+.github/                        # Symlinks for VS Code
 ├── agents -> ../copilot/agents
 └── skills -> ../copilot/skills
 
-package.json                    # Node.js deps (@mermaid-js/mermaid-cli)
-requirements.txt                # Python deps (atlassian-python-api, pytesseract, etc.)
+requirements.txt                # Python deps (atlassian-python-api, fastapi, etc.)
+
+ingest/                         # Deterministic ingestion pipeline (Python package)
+├── __init__.py                 # Exports ingest_page()
+├── confluence_ingest.py        # Main ingestion: download page, convert diagrams, produce page.md
+├── diagram_ast.py              # Canonical AST schema + markdown table generator + enrichment
+├── drawio_to_ast.py            # Draw.io XML → AST JSON
+├── svg_to_ast.py               # SVG XML → AST JSON
+├── plantuml_to_ast.py          # PlantUML → AST JSON
+└── extract_rules.py            # Deterministic rules extractor (batch/refresh/single CLI)
+
+server/                         # FastAPI watcher server
+├── app.py                      # Routes, UI, and ingestion triggers
+├── store.py                    # Watcher state persistence
+├── watcher.py                  # Background Confluence poller
+└── templates/
+    └── index.html              # Watcher UI
 
 copilot/                        # Source files (mounted as .github/ in Docker)
 ├── agents/                     # AI agents
 │   ├── governance-agent.agent.md   # Orchestrator with handoffs
-│   ├── ingestion-agent.agent.md
 │   ├── patterns-agent.agent.md
 │   ├── standards-agent.agent.md
-│   ├── security-agent.agent.md
-│   └── rules-extraction-agent.agent.md  # User-invokable rules extractor
+│   └── security-agent.agent.md
 │
 └── skills/                     # Reusable skills (auto-discovered by category)
-    ├── confluence-ingest/      # category: ingestion
-    │   ├── SKILL.md
-    │   ├── confluence_ingest.py
-    │   ├── diagram_ast.py          # Shared AST schema + Mermaid generator
-    │   ├── ast_to_mermaid.py       # CLI: .ast.json → Mermaid
-    │   ├── drawio_to_mermaid.py    # Draw.io XML → AST → Mermaid
-    │   ├── plantuml_to_mermaid.py  # PlantUML → AST → Mermaid
-    │   ├── svg_to_mermaid.py       # SVG XML → AST → Mermaid
-    │   ├── image_to_ast.py         # CV+OCR → partial AST (needs LLM repair)
-    │   ├── replace_diagrams.py    # Post-repair: replace images + PlantUML + auto-fix Mermaid
-    │   └── validate_mermaid.py     # mmdc syntax validation
-    ├── image-to-mermaid/       # category: ingestion
     ├── index-query/            # category: utility
     ├── rules-extract/          # category: utility
     │   ├── SKILL.md
@@ -534,11 +507,9 @@ governance/
 │   ├── patterns/
 │   │   ├── _all.rules.md                 # Consolidated rules (deduplicated)
 │   │   └── <PAGE_ID>/                    # Per-page artifact folder
-│   │       ├── page.md                   # Source document with inline Mermaid
+│   │       ├── page.md                   # Source document with embedded AST tables
 │   │       ├── metadata.json             # Page metadata
-│   │       ├── rules.md                  # Extracted rules (with AST Condition)
-│   │       ├── <name>.ast.json           # AST IR per diagram
-│   │       └── <name>.mmd               # Mermaid per diagram
+│   │       └── rules.md                  # Extracted rules (with AST Condition)
 │   ├── standards/
 │   │   ├── _all.rules.md
 │   │   └── <PAGE_ID>/ ...
@@ -548,16 +519,14 @@ governance/
 │
 └── output/                     # Generated outputs
     ├── .cache/                 # SHA256-keyed conversion cache
-    │   └── mermaid/
-    │       ├── <hash>.mmd      # Cached Mermaid outputs
+    │   └── ast/
+    │       ├── <hash>.ast.json # Cached AST outputs
     │       └── <hash>.meta     # Cache metadata (source, method, timestamp)
     ├── <PAGE_ID>/              # Page folder
-    │   ├── page.md
+    │   ├── page.md             # Markdown with embedded AST tables
     │   ├── metadata.json
-    │   ├── manifest.json             # Per-diagram: method, ast_file, valid
     │   └── attachments/
-    │       ├── <name>.ast.json       # AST IR per diagram
-    │       └── <name>.mmd           # Mermaid per diagram
+    │       └── <name>.ast.json # AST JSON per diagram
     └── <PAGE_ID>-*-report.md   # Validation reports
 ```
 
@@ -594,8 +563,7 @@ This means adding a new skill requires **zero changes to agent files**.
 | `security` | security-agent | security-validate, + external |
 | `patterns` | patterns-agent | pattern-validate |
 | `standards` | standards-agent | standards-validate |
-| `ingestion` | ingestion-agent | confluence-ingest, image-to-mermaid |
-| `utility` | all validation agents, ingestion-agent, rules-extraction-agent | index-query, rules-extract |
+| `utility` | all validation agents | index-query, rules-extract |
 | `reporting` | governance-agent | merge-reports, markdown-to-html |
 
 ### Adding a Category Tag

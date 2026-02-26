@@ -23,8 +23,7 @@ governance/indexes/<index>/
 ├── <PAGE_ID>/
 │   ├── page.md             # raw document (fallback)
 │   ├── rules.md            # per-page extracted rules (preferred)
-│   ├── *.ast.json          # AST IR files
-│   └── *.mmd               # Mermaid files
+│   └── *.ast.json          # AST JSON files
 ```
 
 ## Priority Order
@@ -64,8 +63,7 @@ governance/indexes/patterns/
 ├── 123456789/
 │   ├── page.md                     # raw document
 │   ├── rules.md                    # per-page extracted rules (preferred)
-│   ├── diagram1.ast.json           # AST IR
-│   └── diagram1.mmd                # Mermaid
+│   └── diagram1.ast.json           # AST JSON
 └── 987654321/
     ├── page.md
     └── rules.md

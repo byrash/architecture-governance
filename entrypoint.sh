@@ -62,7 +62,7 @@ check_env() {
     log_info "Confluence: $CONFLUENCE_URL"
 }
 
-# Run agent via Copilot CLI
+# Run agent via GitHub Copilot
 run_agent() {
     local agent=$1
     local prompt=$2
@@ -74,12 +74,11 @@ run_agent() {
     echo -e "${CYAN}───────────────────────────────────────────────────${NC}"
     echo ""
     
-    # Use GitHub Copilot CLI to run the agent
     if command -v github-copilot-cli &> /dev/null; then
         GITHUB_TOKEN="$COPILOT_TOKEN" github-copilot-cli "@${agent} ${prompt}"
     else
-        log_error "github-copilot-cli not found"
-        log_info "Fallback: Run manually in IDE: @${agent} ${prompt}"
+        log_error "GitHub Copilot CLI not found"
+        log_info "Fallback: Run manually in VS Code Chat: @${agent} ${prompt}"
         return 1
     fi
 }
@@ -95,9 +94,9 @@ main() {
     case "$cmd" in
         ingest)
             if [ -n "$index" ]; then
-                run_agent "ingestion-agent" "Ingest Confluence page $PAGE_ID to $index"
+                python -c "from ingest import ingest_page; ingest_page(page_id='$PAGE_ID', index='$index')"
             else
-                run_agent "ingestion-agent" "Ingest Confluence page $PAGE_ID"
+                python -c "from ingest import ingest_page; ingest_page(page_id='$PAGE_ID')"
             fi
             ;;
         validate)
@@ -107,7 +106,7 @@ main() {
             echo "Usage: $0 {ingest|validate} [index]"
             echo ""
             echo "Commands:"
-            echo "  ingest              Ingest page via @ingestion-agent"
+            echo "  ingest              Ingest page (deterministic pipeline)"
             echo "  ingest <index>      Ingest page to index (patterns/standards/security)"
             echo "  validate            Full validation via @governance-agent"
             echo ""

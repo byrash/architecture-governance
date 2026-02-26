@@ -20,7 +20,7 @@ You validate architecture documents against ALL standards documents in the stand
 
 ## Skills Used
 
-This agent uses the following skills (discovered automatically by Copilot from `copilot/skills/`):
+This agent uses the following skills (discovered automatically by GitHub Copilot from `copilot/skills/`):
 
 - **standards-validate** -- validate document against standards rules
 - **index-query** -- read rules from governance index folders
@@ -47,7 +47,7 @@ Process rules in **batches of 50** (or all at once if total rules + page.md < 80
 
 1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
 2. Validate each rule against page.md and loaded ASTs:
-   - If rule has **Condition**: check text/Mermaid content in page.md
+   - If rule has **Condition**: check text/AST table content in page.md
    - If rule has **AST Condition**: check against loaded AST structures (node IDs, edges, subgraphs, group membership)
 3. **Append finding rows** directly to the Standards Checked table in the report file on disk
 4. Release the batch from context
@@ -55,7 +55,7 @@ Process rules in **batches of 50** (or all at once if total rules + page.md < 80
 
 ### Phase 3: External Skills
 
-Run any additional Copilot-discovered skills against the document. Append their findings to the Discovered Skill Findings section of the report file.
+Run any additional GitHub Copilot-discovered skills against the document. Append their findings to the Discovered Skill Findings section of the report file.
 
 ### Phase 4: Finalize
 
@@ -70,7 +70,7 @@ Run any additional Copilot-discovered skills against the document. Append their 
 For EVERY finding in your report:
 
 1. You MUST cite the exact Rule ID (e.g., R-003) from the `.rules.md` file
-2. You MUST cite evidence: for textual rules, quote the specific text or Mermaid block from `page.md`; for rules with **AST Condition**, cite AST elements (node IDs, edge connections, subgraph/group membership) from the loaded `*.ast.json` structures
+2. You MUST cite evidence: for textual rules, quote the specific text or AST table from `page.md`; for rules with **AST Condition**, cite AST elements (node IDs, edge connections, group membership) from the AST tables or `*.ast.json` files
 3. If you cannot cite a specific rule ID, the finding is NOT VALID -- do not include it
 4. NEVER report a standard as missing unless you have searched the ENTIRE document
 5. If uncertain whether a standard is addressed, mark as WARN (not ERROR)

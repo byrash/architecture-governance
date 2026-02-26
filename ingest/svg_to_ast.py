@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-Deterministic SVG-to-Mermaid converter.
-Parses SVG XML structure (text, shapes, paths, styles) and produces Mermaid flowcharts.
+Deterministic SVG-to-AST converter.
+Parses SVG XML structure (text, shapes, paths, styles) into a canonical DiagramAST.
 Handles Draw.io-exported SVGs and generic vector diagrams.
 Falls back gracefully when SVG contains only embedded raster images.
-
-Internally, parsing produces a DiagramAST which is then rendered to Mermaid.
-Use --ast-output to persist the AST as .ast.json alongside Mermaid output.
 """
 
 import argparse
@@ -17,9 +14,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from diagram_ast import (
+from ingest.diagram_ast import (
     DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
-    generate_mermaid, save_ast,
+    save_ast, enrich_ast,
 )
 
 
@@ -408,7 +405,7 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
     x_spread = max(all_x) - min(all_x) if len(all_x) > 1 else 0
     direction = 'TB' if y_spread >= x_spread else 'LR'
 
-    return DiagramAST(
+    ast = DiagramAST(
         nodes=ast_nodes,
         edges=ast_edges,
         groups=[],
@@ -416,18 +413,8 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
         direction=direction,
         metadata={'source_format': 'svg', 'extraction_method': 'xml_parse'},
     )
-
-
-# ──────────────────────────────────────────────────────────────────
-# Public API (backward compatible)
-# ──────────────────────────────────────────────────────────────────
-
-def convert_svg_to_mermaid(svg_content: str) -> Optional[str]:
-    """Convert SVG XML to Mermaid flowchart syntax (via AST)."""
-    ast = convert_svg_to_ast(svg_content)
-    if ast is None:
-        return None
-    return generate_mermaid(ast)
+    enrich_ast(ast)
+    return ast
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -435,9 +422,9 @@ def convert_svg_to_mermaid(svg_content: str) -> Optional[str]:
 # ──────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='Convert SVG diagrams to Mermaid (via AST IR)')
+    parser = argparse.ArgumentParser(description='Convert SVG diagrams to AST JSON')
     parser.add_argument('--input', '-i', required=True, help='Input SVG file path')
-    parser.add_argument('--ast-output', help='Write AST IR to this .ast.json path')
+    parser.add_argument('--output', '-o', required=True, help='Output .ast.json path')
     parser.add_argument('--check-raster', action='store_true',
                         help='Only check if SVG contains embedded raster (exit 0=vector, 1=raster)')
     args = parser.parse_args()
@@ -463,12 +450,8 @@ def main():
               file=sys.stderr)
         return 1
 
-    if args.ast_output:
-        save_ast(ast, args.ast_output)
-        print(f"  AST written to {args.ast_output}", file=sys.stderr)
-
-    mermaid = generate_mermaid(ast)
-    print(mermaid)
+    save_ast(ast, args.output)
+    print(f"  AST written to {args.output}", file=sys.stderr)
     return 0
 
 

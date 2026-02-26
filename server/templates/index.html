@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Governance — Page Watcher</title>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
+    --text: #24292f; --muted: #656d76; --accent: #0969da;
+    --green: #1a7f37; --red: #cf222e; --yellow: #9a6700;
+    --purple: #8250df;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 0.9rem; }
+
+  .add-form {
+    display: flex; gap: 10px; margin-bottom: 24px; align-items: center;
+    padding: 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);
+  }
+  .add-form input, .add-form select, .add-form button {
+    padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.875rem;
+  }
+  .add-form input { flex: 1; min-width: 180px; }
+  .add-form button {
+    background: var(--accent); color: white; border: none; cursor: pointer; font-weight: 500;
+    white-space: nowrap;
+  }
+  .add-form button:hover { opacity: 0.9; }
+  .add-form button.btn-validate { background: var(--purple); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.875rem; vertical-align: top; }
+  th { background: var(--surface); font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+  tr:hover { background: #f3f4f6; }
+
+  .status { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+  .status-pending { background: #ddf4ff; color: var(--accent); }
+  .status-ingesting { background: #fff8c5; color: var(--yellow); }
+  .status-ingested { background: #dafbe1; color: var(--green); }
+  .status-error { background: #ffebe9; color: var(--red); }
+
+  .mode-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+  .mode-index { background: #ddf4ff; color: var(--accent); }
+  .mode-validate { background: #f3e8ff; color: var(--purple); }
+
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-sm {
+    padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; color: var(--text);
+  }
+  .btn-sm:hover { background: var(--surface); }
+  .btn-sm.danger { color: var(--red); border-color: var(--red); }
+  .btn-sm.danger:hover { background: #ffebe9; }
+
+  .info-cell { font-size: 0.82rem; line-height: 1.6; }
+  .info-cell .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .info-cell .path { font-family: 'SF Mono', Consolas, monospace; font-size: 0.78rem; color: var(--green); }
+  .info-cell .cmd {
+    display: inline-block; margin-top: 4px; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 0.78rem;
+    background: #f3e8ff; border: 1px solid #d8b4fe; color: var(--purple);
+    max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .info-cell .cmd:hover { background: #ede5ff; }
+  .info-cell .cmd.copied { background: #dafbe1; border-color: var(--green); color: var(--green); }
+  .info-cell .rules-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; margin-left: 4px;
+  }
+  .sev-C { background: #ffebe9; color: var(--red); }
+  .sev-H { background: #fff1e5; color: #bc4c00; }
+  .sev-M { background: #fff8c5; color: var(--yellow); }
+  .sev-L { background: #ddf4ff; color: var(--accent); }
+
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+  .error-msg { color: var(--red); font-size: 0.8rem; margin-top: 4px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Architecture Governance &mdash; Page Watcher</h1>
+  <p class="subtitle">Index Confluence pages into governance categories, or ingest and validate with governance agents.</p>
+
+  <div class="add-form">
+    <input type="text" id="pageId" placeholder="Confluence Page ID" />
+    <select id="modeSelect" onchange="onModeChange()">
+      <option value="index">Index</option>
+      <option value="validate">Validate</option>
+    </select>
+    <select id="categorySelect">
+      <option value="patterns">patterns</option>
+      <option value="standards">standards</option>
+      <option value="security">security</option>
+    </select>
+    <button id="submitBtn" onclick="submitPage()">Index Page</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Page ID</th>
+        <th>Title</th>
+        <th>Mode</th>
+        <th>Status</th>
+        <th>Details</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="pagesBody">
+      <tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const API = '/api/pages';
+
+function onModeChange() {
+  const mode = document.getElementById('modeSelect').value;
+  const catSelect = document.getElementById('categorySelect');
+  const btn = document.getElementById('submitBtn');
+  if (mode === 'validate') {
+    catSelect.classList.add('hidden');
+    btn.textContent = 'Validate Page';
+    btn.classList.add('btn-validate');
+  } else {
+    catSelect.classList.remove('hidden');
+    btn.textContent = 'Index Page';
+    btn.classList.remove('btn-validate');
+  }
+}
+
+function buildDetails(p) {
+  const st = p.status || 'pending';
+  const isIndex = p.mode === 'index';
+
+  if (st === 'pending') return '<span style="color:var(--muted)">Waiting for ingestion...</span>';
+  if (st === 'ingesting') return '<span style="color:var(--yellow)">Ingesting from Confluence...</span>';
+  if (st === 'error') return '';
+
+  if (st === 'ingested' && isIndex) {
+    let html = '';
+    if (p.index_path) {
+      html += `<div><span class="label">Indexed to</span><br><span class="path">${p.index_path}</span></div>`;
+    }
+    if (p.rules_summary) {
+      const rs = p.rules_summary;
+      html += `<div style="margin-top:6px"><span class="label">Rules extracted: ${rs.total}</span>`;
+      if (rs.severity) {
+        const s = rs.severity;
+        if (s.C) html += `<span class="rules-badge sev-C">C:${s.C}</span>`;
+        if (s.H) html += `<span class="rules-badge sev-H">H:${s.H}</span>`;
+        if (s.M) html += `<span class="rules-badge sev-M">M:${s.M}</span>`;
+        if (s.L) html += `<span class="rules-badge sev-L">L:${s.L}</span>`;
+      }
+      html += '</div>';
+    } else if (p.rules_count > 0) {
+      html += `<div style="margin-top:6px"><span class="label">Rules: ${p.rules_count}</span></div>`;
+    }
+    return html;
+  }
+
+  if (st === 'ingested' && !isIndex) {
+    const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
+    let html = '';
+    html += `<div><span class="label">Page ingested to</span><br><span class="path">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
+    html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
+    html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+    return html;
+  }
+
+  return '';
+}
+
+async function fetchPages() {
+  const res = await fetch(API);
+  const data = await res.json();
+  const tbody = document.getElementById('pagesBody');
+
+  const entries = Object.values(data);
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = entries.map(p => {
+    const st = p.status || 'pending';
+    const isIndex = p.mode === 'index';
+
+    const modeLabel = isIndex
+      ? `<span class="mode-tag mode-index">index / ${p.index}</span>`
+      : `<span class="mode-tag mode-validate">validate</span>`;
+
+    const canView = st === 'ingested';
+    const viewLink = canView
+      ? `<a class="btn-sm" href="/pages/${p.page_id}/preview" target="_blank">View</a>`
+      : '';
+
+    const rerunLabel = isIndex ? 'Re-index' : 'Re-ingest';
+    const rerunBtn = ['ingested','error'].includes(st)
+      ? `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">${rerunLabel}</button>`
+      : '';
+
+    let statusExtra = '';
+    if (p.error) statusExtra = `<div class="error-msg">${p.error}</div>`;
+
+    const details = buildDetails(p);
+
+    return `<tr>
+      <td><code>${p.page_id}</code></td>
+      <td>${p.title || '—'}</td>
+      <td>${modeLabel}</td>
+      <td><span class="status status-${st}">${st}</span>${statusExtra}</td>
+      <td class="info-cell">${details}</td>
+      <td class="actions">
+        ${rerunBtn}
+        ${viewLink}
+        <button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function submitPage() {
+  const pageId = document.getElementById('pageId').value.trim();
+  if (!pageId) return;
+  const mode = document.getElementById('modeSelect').value;
+  const category = document.getElementById('categorySelect').value;
+
+  const body = { page_id: pageId, mode };
+  if (mode === 'index') body.index = category;
+
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || 'Failed to add page');
+    return;
+  }
+  document.getElementById('pageId').value = '';
+  fetchPages();
+  setTimeout(() => ingestPage(pageId), 300);
+}
+
+async function removePage(pageId) {
+  await fetch(`${API}/${pageId}`, {method: 'DELETE'});
+  fetchPages();
+}
+
+async function ingestPage(pageId) {
+  await fetch(`${API}/${pageId}/ingest`, {method: 'POST'});
+  fetchPages();
+}
+
+function copyCmd(el) {
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    el.classList.add('copied');
+    setTimeout(() => el.classList.remove('copied'), 1200);
+  });
+}
+
+fetchPages();
+setInterval(fetchPages, 5000);
+</script>
+</body>
+</html>

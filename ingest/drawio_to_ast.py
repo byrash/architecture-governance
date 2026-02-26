@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-Draw.io to Mermaid Converter (Enhanced)
+Draw.io to AST Converter
 
 Based on research from FlowForge (https://github.com/genkinsforge/FlowForge)
-and the Draw.io to Mermaid mapping guide.
+and the Draw.io shape mapping guide.
 
-Converts Draw.io XML diagrams to Mermaid syntax with:
+Parses Draw.io XML diagrams into a canonical DiagramAST with:
 - Multi-page diagram support
 - Enhanced style parsing for shapes and arrows
 - Recursive group/subgraph handling
 - Multiple decompression methods
-- Reserved word escaping
-
-Internally, parsing produces a DiagramAST which is then rendered to Mermaid.
-Use --ast-output to persist the AST as .ast.json alongside Mermaid output.
+- Semantic enrichment (roles, protocols, zones)
 """
 
 import argparse
@@ -28,9 +25,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 from typing import List, Dict, Tuple, Optional, Set
 
-from diagram_ast import (
+from ingest.diagram_ast import (
     DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
-    generate_mermaid, detect_direction, save_ast,
+    detect_direction, save_ast, enrich_ast,
 )
 
 
@@ -69,7 +66,7 @@ def clean_label(value: str) -> str:
 
 
 def detect_shape(style: Dict[str, str]) -> str:
-    """Detect Mermaid shape from Draw.io style (FlowForge mapping)."""
+    """Detect canonical shape from Draw.io style (FlowForge mapping)."""
     shape = style.get('shape', '').lower()
     shape_mappings = {
         'cylinder': 'database', 'database': 'database', 'datastore': 'database',
@@ -83,9 +80,9 @@ def detect_shape(style: Dict[str, str]) -> str:
         'hexagon': 'hexagon',
         'process': 'rectangle', 'mxgraph.flowchart.process': 'rectangle',
     }
-    for key, mermaid_shape in shape_mappings.items():
+    for key, canonical_shape in shape_mappings.items():
         if key in shape:
-            return mermaid_shape
+            return canonical_shape
     if style.get('rounded') == '1':
         return 'stadium'
     if 'ellipse' in style:
@@ -98,7 +95,7 @@ def detect_shape(style: Dict[str, str]) -> str:
 
 
 def detect_edge_style(style: Dict[str, str]) -> str:
-    """Detect Mermaid edge style from Draw.io style."""
+    """Detect canonical edge style from Draw.io style."""
     if style.get('dashed') == '1' or 'dashed' in style:
         return 'dashed'
     if style.get('dotted') == '1':
@@ -352,13 +349,8 @@ def convert_drawio_to_ast(input_path: Path, page_index: int = 0) -> DiagramAST:
     if len(pages) > 1:
         print(f"  Multi-page file: converted page {page_index + 1} of {len(pages)}", file=sys.stderr)
 
+    enrich_ast(ast)
     return ast
-
-
-def convert_drawio_to_mermaid(input_path: Path, page_index: int = 0) -> str:
-    """Main conversion: Draw.io → AST → Mermaid text."""
-    ast = convert_drawio_to_ast(input_path, page_index)
-    return generate_mermaid(ast)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -367,12 +359,11 @@ def convert_drawio_to_mermaid(input_path: Path, page_index: int = 0) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert Draw.io diagrams to Mermaid (via AST IR)",
+        description="Convert Draw.io diagrams to AST JSON",
         epilog="Based on FlowForge research (https://github.com/genkinsforge/FlowForge)",
     )
     parser.add_argument("--input", "-i", required=True, help="Input .drawio file")
-    parser.add_argument("--output", "-o", help="Output Mermaid file (optional)")
-    parser.add_argument("--ast-output", help="Write AST IR to this .ast.json path")
+    parser.add_argument("--output", "-o", required=True, help="Output .ast.json path")
     parser.add_argument("--page", "-p", type=int, default=0, help="Page index (0-based)")
     args = parser.parse_args()
 
@@ -382,21 +373,8 @@ def main():
         sys.exit(1)
 
     ast = convert_drawio_to_ast(input_path, args.page)
-
-    if args.ast_output:
-        save_ast(ast, args.ast_output)
-        print(f"  AST written to {args.ast_output}", file=sys.stderr)
-
-    mermaid = generate_mermaid(ast)
-
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(mermaid)
-        print(f"  Output written to {output_path}", file=sys.stderr)
-
-    print(mermaid)
+    save_ast(ast, args.output)
+    print(f"  AST written to {args.output}", file=sys.stderr)
 
 
 if __name__ == "__main__":
