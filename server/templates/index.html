@@ -1,440 +1,790 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Architecture Governance — Page Watcher</title>
-<style>
-  :root {
-    --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
-    --text: #24292f; --muted: #656d76; --accent: #0969da;
-    --green: #1a7f37; --red: #cf222e; --yellow: #9a6700;
-    --purple: #8250df;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.5;
-  }
-  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; }
-  .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 0.9rem; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture Governance</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --border: #d0d7de;
+      --text: #24292f;
+      --muted: #656d76;
+      --accent: #0969da;
+      --green: #1a7f37;
+      --red: #cf222e;
+      --yellow: #9a6700;
+      --purple: #8250df;
+    }
 
-  .add-form {
-    display: flex; gap: 10px; margin-bottom: 24px; align-items: center;
-    padding: 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);
-  }
-  .add-form input, .add-form select, .add-form button {
-    padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.875rem;
-  }
-  .add-form input { flex: 1; min-width: 180px; }
-  .add-form button {
-    background: var(--accent); color: white; border: none; cursor: pointer; font-weight: 500;
-    white-space: nowrap;
-  }
-  .add-form button:hover { opacity: 0.9; }
-  .add-form button.btn-validate { background: var(--purple); }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.875rem; vertical-align: top; }
-  th { background: var(--surface); font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
-  tr:hover { background: #f3f4f6; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
 
-  .status { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-  .status-pending { background: #ddf4ff; color: var(--accent); }
-  .status-ingesting { background: #fff8c5; color: var(--yellow); }
-  .status-ingested { background: #dafbe1; color: var(--green); }
-  .status-validating { background: #f3e8ff; color: var(--purple); }
-  .status-validated { background: #dafbe1; color: var(--green); }
-  .status-error { background: #ffebe9; color: var(--red); }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
 
-  .mode-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-  .mode-index { background: #ddf4ff; color: var(--accent); }
-  .mode-validate { background: #f3e8ff; color: var(--purple); }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
 
-  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .btn-sm {
-    padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
-    background: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; color: var(--text);
-  }
-  .btn-sm:hover { background: var(--surface); }
-  .btn-sm.danger { color: var(--red); border-color: var(--red); }
-  .btn-sm.danger:hover { background: #ffebe9; }
-  .btn-sm.purple { color: var(--purple); border-color: var(--purple); }
-  .btn-sm.purple:hover { background: #f3e8ff; }
+    .subtitle {
+      color: var(--muted);
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+    }
 
-  .info-cell { font-size: 0.82rem; line-height: 1.6; }
-  .info-cell .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  .info-cell .path { font-family: 'SF Mono', Consolas, monospace; font-size: 0.78rem; color: var(--green); }
-  .info-cell .cmd {
-    display: inline-block; margin-top: 4px; padding: 4px 10px; border-radius: 4px; cursor: pointer;
-    font-family: 'SF Mono', Consolas, monospace; font-size: 0.78rem;
-    background: #f3e8ff; border: 1px solid #d8b4fe; color: var(--purple);
-    max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .info-cell .cmd:hover { background: #ede5ff; }
-  .info-cell .cmd.copied { background: #dafbe1; border-color: var(--green); color: var(--green); }
-  .info-cell .rules-badge {
-    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; margin-left: 4px;
-  }
-  .sev-C { background: #ffebe9; color: var(--red); }
-  .sev-H { background: #fff1e5; color: #bc4c00; }
-  .sev-M { background: #fff8c5; color: var(--yellow); }
-  .sev-L { background: #ddf4ff; color: var(--accent); }
+    .add-form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+      align-items: center;
+      padding: 16px;
+      background: var(--surface);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
 
-  .empty { text-align: center; padding: 40px; color: var(--muted); }
-  .error-msg { color: var(--red); font-size: 0.8rem; margin-top: 4px; }
-  .stale-banner {
-    margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 0.78rem;
-    background: #fff8c5; border: 1px solid #d4a72c; color: #7c5e00;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .stale-banner .stale-icon { font-size: 1rem; }
-  .hidden { display: none; }
+    .add-form input,
+    .add-form select,
+    .add-form button {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
 
-  /* Progress log */
-  .progress-log {
-    margin-top: 8px; padding: 10px 12px; border-radius: 6px;
-    background: #1e1e2e; color: #cdd6f4; font-family: 'SF Mono', Consolas, monospace;
-    font-size: 0.75rem; line-height: 1.7; max-height: 260px; overflow-y: auto;
-  }
-  .progress-log .log-entry { white-space: pre-wrap; }
-  .log-icon-complete { color: #a6e3a1; }
-  .log-icon-start { color: #f9e2af; }
-  .log-icon-error { color: #f38ba8; }
-  .log-waiting { color: #6c7086; font-style: italic; }
+    .add-form input {
+      flex: 1;
+      min-width: 180px;
+    }
 
-  /* Score card */
-  .score-card {
-    margin-top: 8px; padding: 10px 14px; border-radius: 6px;
-    background: var(--surface); border: 1px solid var(--border);
-  }
-  .score-overall {
-    font-size: 1.4rem; font-weight: 700; display: inline-block;
-    padding: 2px 12px; border-radius: 6px; margin-right: 10px;
-  }
-  .score-pass { background: #dafbe1; color: var(--green); }
-  .score-fail { background: #ffebe9; color: var(--red); }
-  .score-pills { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-  .score-pill {
-    padding: 2px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: 500;
-  }
+    .add-form button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      white-space: nowrap;
+    }
 
-  /* Modal overlay */
-  .modal-overlay {
-    display: none; position: fixed; inset: 0; z-index: 1000;
-    background: rgba(0,0,0,0.5); justify-content: center; align-items: center;
-  }
-  .modal-overlay.active { display: flex; }
-  .modal-box {
-    background: white; border-radius: 10px; width: 90vw; max-width: 960px;
-    max-height: 85vh; display: flex; flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  }
-  .modal-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    font-weight: 600; font-size: 0.95rem;
-  }
-  .modal-close {
-    background: none; border: none; font-size: 1.3rem; cursor: pointer;
-    color: var(--muted); padding: 4px 8px; border-radius: 4px;
-  }
-  .modal-close:hover { background: var(--surface); color: var(--text); }
-  .modal-body {
-    padding: 20px; overflow-y: auto; flex: 1;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.6; color: var(--text);
-  }
-  .modal-body table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-  .modal-body th, .modal-body td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; }
-  .modal-body th { background: #f6f8fa; font-weight: 600; }
-  .modal-body tr:nth-child(even) { background: #f6f8fa; }
-  .modal-body code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
-  .modal-body pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
-  .modal-body h1, .modal-body h2, .modal-body h3 { margin-top: 20px; }
-</style>
+    .add-form button:hover {
+      opacity: 0.9;
+    }
+
+    .add-form button.btn-validate {
+      background: var(--purple);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.875rem;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--surface);
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    tr:hover {
+      background: #f3f4f6;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .status-pending {
+      background: #ddf4ff;
+      color: var(--accent);
+    }
+
+    .status-ingesting {
+      background: #fff8c5;
+      color: var(--yellow);
+    }
+
+    .status-ingested {
+      background: #dafbe1;
+      color: var(--green);
+    }
+
+    .status-validating {
+      background: #f3e8ff;
+      color: var(--purple);
+    }
+
+    .status-validated {
+      background: #dafbe1;
+      color: var(--green);
+    }
+
+    .status-error {
+      background: #ffebe9;
+      color: var(--red);
+    }
+
+    .mode-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .mode-index {
+      background: #ddf4ff;
+      color: var(--accent);
+    }
+
+    .mode-validate {
+      background: #f3e8ff;
+      color: var(--purple);
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: white;
+      cursor: pointer;
+      font-size: 0.8rem;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .btn-sm:hover {
+      background: var(--surface);
+    }
+
+    .btn-sm.danger {
+      color: var(--red);
+      border-color: var(--red);
+    }
+
+    .btn-sm.danger:hover {
+      background: #ffebe9;
+    }
+
+    .btn-sm.purple {
+      color: var(--purple);
+      border-color: var(--purple);
+    }
+
+    .btn-sm.purple:hover {
+      background: #f3e8ff;
+    }
+
+    .info-cell {
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .info-cell .label {
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .info-cell .path {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.78rem;
+      color: var(--green);
+    }
+
+    .info-cell .cmd {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.78rem;
+      background: #f3e8ff;
+      border: 1px solid #d8b4fe;
+      color: var(--purple);
+      max-width: 460px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .info-cell .cmd:hover {
+      background: #ede5ff;
+    }
+
+    .info-cell .cmd.copied {
+      background: #dafbe1;
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .info-cell .rules-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
+    .sev-C {
+      background: #ffebe9;
+      color: var(--red);
+    }
+
+    .sev-H {
+      background: #fff1e5;
+      color: #bc4c00;
+    }
+
+    .sev-M {
+      background: #fff8c5;
+      color: var(--yellow);
+    }
+
+    .sev-L {
+      background: #ddf4ff;
+      color: var(--accent);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+    }
+
+    .error-msg {
+      color: var(--red);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+
+    .stale-banner {
+      margin-top: 6px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      background: #fff8c5;
+      border: 1px solid #d4a72c;
+      color: #7c5e00;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stale-banner .stale-icon {
+      font-size: 1rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    /* Progress log */
+    .progress-log {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.75rem;
+      line-height: 1.7;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .progress-log .log-entry {
+      white-space: pre-wrap;
+    }
+
+    .log-icon-complete {
+      color: #a6e3a1;
+    }
+
+    .log-icon-start {
+      color: #f9e2af;
+    }
+
+    .log-icon-error {
+      color: #f38ba8;
+    }
+
+    .log-waiting {
+      color: #6c7086;
+      font-style: italic;
+    }
+
+    /* Score card */
+    .score-card {
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .score-overall {
+      font-size: 1.4rem;
+      font-weight: 700;
+      display: inline-block;
+      padding: 2px 12px;
+      border-radius: 6px;
+      margin-right: 10px;
+    }
+
+    .score-pass {
+      background: #dafbe1;
+      color: var(--green);
+    }
+
+    .score-fail {
+      background: #ffebe9;
+      color: var(--red);
+    }
+
+    .score-pills {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    .score-pill {
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+
+    /* Modal overlay */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.5);
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: white;
+      border-radius: 10px;
+      width: 90vw;
+      max-width: 960px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.3rem;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    .modal-close:hover {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    .modal-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 16px 0;
+    }
+
+    .modal-body th,
+    .modal-body td {
+      border: 1px solid #d0d7de;
+      padding: 8px 12px;
+      text-align: left;
+    }
+
+    .modal-body th {
+      background: #f6f8fa;
+      font-weight: 600;
+    }
+
+    .modal-body tr:nth-child(even) {
+      background: #f6f8fa;
+    }
+
+    .modal-body code {
+      background: #f6f8fa;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    .modal-body pre {
+      background: #f6f8fa;
+      padding: 16px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+
+    .modal-body h1,
+    .modal-body h2,
+    .modal-body h3 {
+      margin-top: 20px;
+    }
+  </style>
 </head>
+
 <body>
-<div class="container">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-    <div>
-      <h1>Architecture Governance &mdash; Page Watcher</h1>
-      <p class="subtitle" style="margin-bottom:0">Index Confluence pages into governance categories, or ingest and validate with governance agents.</p>
+  <div class="container">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+      <div>
+        <h1>Architecture Governance &mdash; Page Watcher</h1>
+        <p class="subtitle" style="margin-bottom:0">Index Confluence pages into governance categories, or ingest and validate with governance agents.
+        </p>
+      </div>
+      <button onclick="resetAll()" class="btn-sm danger" style="white-space:nowrap;margin-top:4px"
+        title="Remove all watched pages and delete output folders">Reset All</button>
     </div>
-    <button onclick="resetAll()" class="btn-sm danger" style="white-space:nowrap;margin-top:4px"
-            title="Remove all watched pages and delete output folders">Reset All</button>
-  </div>
 
-  <div class="add-form">
-    <input type="text" id="pageId" placeholder="Confluence Page ID" />
-    <select id="modeSelect" onchange="onModeChange()">
-      <option value="validate" selected>Validate</option>
-      <option value="index">Index</option>
-    </select>
-    <select id="categorySelect" class="hidden">
-      <option value="patterns">patterns</option>
-      <option value="standards">standards</option>
-      <option value="security">security</option>
-    </select>
-    <button id="submitBtn" class="btn-validate" onclick="submitPage()">Validate Page</button>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Page ID</th>
-        <th>Title</th>
-        <th>Mode</th>
-        <th>Status</th>
-        <th>Details</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody id="pagesBody">
-      <tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- Modal -->
-<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span id="modalTitle">Preview</span>
-      <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="add-form">
+      <input type="text" id="pageId" placeholder="Confluence Page ID" />
+      <select id="modeSelect" onchange="onModeChange()">
+        <option value="validate" selected>Validate</option>
+        <option value="index">Index</option>
+      </select>
+      <select id="categorySelect" class="hidden">
+        <option value="patterns">patterns</option>
+        <option value="standards">standards</option>
+        <option value="security">security</option>
+      </select>
+      <button id="submitBtn" class="btn-validate" onclick="submitPage()">Validate Page</button>
     </div>
-    <div class="modal-body" id="modalBody"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Page ID</th>
+          <th>Title</th>
+          <th>Mode</th>
+          <th>Status</th>
+          <th>Details</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="pagesBody">
+        <tr>
+          <td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
-</div>
 
-<script>
-const API = '/api/pages';
+  <!-- Modal -->
+  <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modalTitle">Preview</span>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
 
-function onModeChange() {
-  const mode = document.getElementById('modeSelect').value;
-  const catSelect = document.getElementById('categorySelect');
-  const btn = document.getElementById('submitBtn');
-  if (mode === 'validate') {
-    catSelect.classList.add('hidden');
-    btn.textContent = 'Validate Page';
-    btn.classList.add('btn-validate');
-  } else {
-    catSelect.classList.remove('hidden');
-    btn.textContent = 'Index Page';
-    btn.classList.remove('btn-validate');
-  }
-}
+  <script>
+    const API = '/api/pages';
 
-// ── Modal ────────────────────────────────────────────────────────
+    function onModeChange() {
+      const mode = document.getElementById('modeSelect').value;
+      const catSelect = document.getElementById('categorySelect');
+      const btn = document.getElementById('submitBtn');
+      if (mode === 'validate') {
+        catSelect.classList.add('hidden');
+        btn.textContent = 'Validate Page';
+        btn.classList.add('btn-validate');
+      } else {
+        catSelect.classList.remove('hidden');
+        btn.textContent = 'Index Page';
+        btn.classList.remove('btn-validate');
+      }
+    }
 
-function openModal(title, html) {
-  document.getElementById('modalTitle').textContent = title;
-  document.getElementById('modalBody').innerHTML = html;
-  document.getElementById('modal').classList.add('active');
-}
+    // ── Modal ────────────────────────────────────────────────────────
 
-function closeModal() {
-  document.getElementById('modal').classList.remove('active');
-  document.getElementById('modalBody').innerHTML = '';
-}
+    function openModal(title, html) {
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalBody').innerHTML = html;
+      document.getElementById('modal').classList.add('active');
+    }
 
-async function viewPreview(pageId) {
-  const res = await fetch(`/pages/${pageId}/preview`);
-  if (!res.ok) { alert('Preview not available'); return; }
-  const html = await res.text();
-  openModal(`Page ${pageId} — Preview`, html);
-}
+    function closeModal() {
+      document.getElementById('modal').classList.remove('active');
+      document.getElementById('modalBody').innerHTML = '';
+    }
 
-async function viewReport(pageId) {
-  const res = await fetch(`/api/pages/${pageId}/report`);
-  if (!res.ok) { alert('Report not available yet'); return; }
-  const html = await res.text();
-  openModal(`Page ${pageId} — Governance Report`, html);
-}
+    async function viewPreview(pageId) {
+      const res = await fetch(`/pages/${pageId}/preview`);
+      if (!res.ok) {alert('Preview not available'); return;}
+      const html = await res.text();
+      openModal(`Page ${pageId} — Preview`, html);
+    }
 
-async function viewRules(pageId) {
-  const res = await fetch(`/api/pages/${pageId}/rules`);
-  if (!res.ok) { alert('Rules not available'); return; }
-  const html = await res.text();
-  openModal(`Page ${pageId} — Extracted Rules`, html);
-}
+    async function viewReport(pageId) {
+      const res = await fetch(`/api/pages/${pageId}/report`);
+      if (!res.ok) {alert('Report not available yet'); return;}
+      const html = await res.text();
+      openModal(`Page ${pageId} — Governance Report`, html);
+    }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+    async function viewRules(pageId) {
+      const res = await fetch(`/api/pages/${pageId}/rules`);
+      if (!res.ok) {alert('Rules not available'); return;}
+      const html = await res.text();
+      openModal(`Page ${pageId} — Extracted Rules`, html);
+    }
 
-// ── Progress rendering ───────────────────────────────────────────
+    document.addEventListener('keydown', e => {if (e.key === 'Escape') closeModal();});
 
-function renderProgressLog(logs) {
-  if (!logs || !logs.length) {
-    return '<div class="progress-log"><span class="log-waiting">Waiting for agent to start...</span></div>';
-  }
-  const lines = logs.map(l => {
-    const st = l.status || '';
-    let icon = '';
-    let cls = '';
-    if (st === 'complete') { icon = '\u2713'; cls = 'log-icon-complete'; }
-    else if (st === 'start' || st === 'running') { icon = '\u25B6'; cls = 'log-icon-start'; }
-    else if (st === 'error') { icon = '\u2717'; cls = 'log-icon-error'; }
-    else { icon = '\u2022'; cls = 'log-icon-start'; }
+    // ── Progress rendering ───────────────────────────────────────────
 
-    const agent = l.agent ? `[${l.agent}] ` : '';
-    const stepLabel = l.step !== undefined && l.step !== 'done' ? `Step ${l.step}: ` : '';
-    const msg = l.message || '';
-    const detail = l.detail ? ` — ${l.detail}` : '';
-    return `<div class="log-entry"><span class="${cls}">${icon}</span> ${agent}${stepLabel}${msg}${detail}</div>`;
-  }).join('');
-  return `<div class="progress-log" id="progressScroll">${lines}</div>`;
-}
+    function renderProgressLog(logs) {
+      if (!logs || !logs.length) {
+        return '<div class="progress-log"><span class="log-waiting">Waiting for agent to start...</span></div>';
+      }
+      const lines = logs.map(l => {
+        const st = l.status || '';
+        let icon = '';
+        let cls = '';
+        if (st === 'complete') {icon = '\u2713'; cls = 'log-icon-complete';}
+        else if (st === 'start' || st === 'running') {icon = '\u25B6'; cls = 'log-icon-start';}
+        else if (st === 'error') {icon = '\u2717'; cls = 'log-icon-error';}
+        else {icon = '\u2022'; cls = 'log-icon-start';}
 
-function renderScoreCard(scores) {
-  if (!scores) return '';
-  const overall = scores.score || 0;
-  const cls = overall >= 70 ? 'score-pass' : 'score-fail';
-  const label = overall >= 70 ? 'PASS' : 'FAIL';
+        const agent = l.agent ? `[${l.agent}] ` : '';
+        const stepLabel = l.step !== undefined && l.step !== 'done' ? `Step ${l.step}: ` : '';
+        const msg = l.message || '';
+        const detail = l.detail ? ` — ${l.detail}` : '';
+        return `<div class="log-entry"><span class="${cls}">${icon}</span> ${agent}${stepLabel}${msg}${detail}</div>`;
+      }).join('');
+      return `<div class="progress-log" id="progressScroll">${lines}</div>`;
+    }
 
-  let pills = '';
-  if (scores.patterns !== undefined) {
-    pills += `<span class="score-pill" style="background:#ddf4ff;color:var(--accent)">Patterns: ${scores.patterns}</span>`;
-  }
-  if (scores.standards !== undefined) {
-    pills += `<span class="score-pill" style="background:#fff8c5;color:var(--yellow)">Standards: ${scores.standards}</span>`;
-  }
-  if (scores.security !== undefined) {
-    pills += `<span class="score-pill" style="background:#f3e8ff;color:var(--purple)">Security: ${scores.security}</span>`;
-  }
+    function renderScoreCard(scores) {
+      if (!scores) return '';
+      const overall = scores.score || 0;
+      const cls = overall >= 70 ? 'score-pass' : 'score-fail';
+      const label = overall >= 70 ? 'PASS' : 'FAIL';
 
-  return `<div class="score-card">
+      let pills = '';
+      if (scores.patterns !== undefined) {
+        pills += `<span class="score-pill" style="background:#ddf4ff;color:var(--accent)">Patterns: ${scores.patterns}</span>`;
+      }
+      if (scores.standards !== undefined) {
+        pills += `<span class="score-pill" style="background:#fff8c5;color:var(--yellow)">Standards: ${scores.standards}</span>`;
+      }
+      if (scores.security !== undefined) {
+        pills += `<span class="score-pill" style="background:#f3e8ff;color:var(--purple)">Security: ${scores.security}</span>`;
+      }
+
+      return `<div class="score-card">
     <span class="score-overall ${cls}">${overall}/100 ${label}</span>
     <div class="score-pills">${pills}</div>
   </div>`;
-}
-
-// ── Build details per status ─────────────────────────────────────
-
-function buildDetails(p) {
-  const st = p.status || 'pending';
-  const isIndex = p.mode === 'index';
-
-  if (st === 'pending') return '<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion…</span>';
-  if (st === 'ingesting') return '<span style="color:var(--yellow)">Ingesting from Confluence...</span>';
-  if (st === 'error') return '';
-
-  // Index mode — ingested
-  if (st === 'ingested' && isIndex) {
-    let html = '';
-    if (p.change_detected) {
-      html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-index</div>`;
-    } else if (p.stale_validation) {
-      html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page updated on Confluence — re-indexed with fresh content</div>`;
     }
-    if (p.index_path) {
-      html += `<div><span class="label">Indexed to</span><br><span class="path">${p.index_path}</span></div>`;
-    }
-    if (p.rules_summary) {
-      const rs = p.rules_summary;
-      html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none"><span class="label" style="cursor:pointer">Rules extracted: ${rs.total}</span>`;
-      if (rs.severity) {
-        const s = rs.severity;
-        if (s.C) html += `<span class="rules-badge sev-C">C:${s.C}</span>`;
-        if (s.H) html += `<span class="rules-badge sev-H">H:${s.H}</span>`;
-        if (s.M) html += `<span class="rules-badge sev-M">M:${s.M}</span>`;
-        if (s.L) html += `<span class="rules-badge sev-L">L:${s.L}</span>`;
+
+    // ── Build details per status ─────────────────────────────────────
+
+    function buildDetails(p) {
+      const st = p.status || 'pending';
+      const isIndex = p.mode === 'index';
+
+      if (st === 'pending') return '<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion…</span>';
+      if (st === 'ingesting') return '<span style="color:var(--yellow)">Ingesting from Confluence...</span>';
+      if (st === 'error') return '';
+
+      // Index mode — ingested
+      if (st === 'ingested' && isIndex) {
+        let html = '';
+        if (p.change_detected) {
+          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-index</div>`;
+        } else if (p.stale_validation) {
+          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page updated on Confluence — re-indexed with fresh content</div>`;
+        }
+        if (p.index_path) {
+          html += `<div><span class="label">Indexed to</span><br><span class="path">${p.index_path}</span></div>`;
+        }
+        if (p.rules_summary) {
+          const rs = p.rules_summary;
+          html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none"><span class="label" style="cursor:pointer">Rules extracted: ${rs.total}</span>`;
+          if (rs.severity) {
+            const s = rs.severity;
+            if (s.C) html += `<span class="rules-badge sev-C">C:${s.C}</span>`;
+            if (s.H) html += `<span class="rules-badge sev-H">H:${s.H}</span>`;
+            if (s.M) html += `<span class="rules-badge sev-M">M:${s.M}</span>`;
+            if (s.L) html += `<span class="rules-badge sev-L">L:${s.L}</span>`;
+          }
+          html += '</a></div>';
+        } else if (p.rules_count > 0) {
+          html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none;cursor:pointer"><span class="label">Rules: ${p.rules_count}</span></a></div>`;
+        }
+        return html;
       }
-      html += '</a></div>';
-    } else if (p.rules_count > 0) {
-      html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none;cursor:pointer"><span class="label">Rules: ${p.rules_count}</span></a></div>`;
+
+      // Validate mode — ingested (show command + waiting)
+      if (st === 'ingested' && !isIndex) {
+        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
+        let html = '';
+        if (p.change_detected) {
+          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-ingest</div>`;
+        } else if (p.stale_validation) {
+          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page re-ingested after Confluence update — please re-run governance agent</div>`;
+        }
+        html += `<div><span class="label">Page ingested to</span><br><span class="path">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
+        html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
+        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+        html += renderProgressLog([]);
+        return html;
+      }
+
+      // Validating — live progress
+      if (st === 'validating') {
+        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
+        let html = '';
+        html += `<div><span class="label">Run in VS Code Chat:</span> `;
+        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+        html += renderProgressLog(p.progress_log);
+        return html;
+      }
+
+      // Validated — show scores + report link
+      if (st === 'validated') {
+        let html = '';
+        if (p.change_detected) {
+          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence since validation — add <code>governance-ready</code> label or click Mark Ready to re-validate</div>`;
+        }
+        html += renderScoreCard(p.report_scores);
+        html += renderProgressLog(p.progress_log);
+        return html;
+      }
+
+      return '';
     }
-    return html;
-  }
 
-  // Validate mode — ingested (show command + waiting)
-  if (st === 'ingested' && !isIndex) {
-    const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
-    let html = '';
-    if (p.change_detected) {
-      html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-ingest</div>`;
-    } else if (p.stale_validation) {
-      html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page re-ingested after Confluence update — please re-run governance agent</div>`;
-    }
-    html += `<div><span class="label">Page ingested to</span><br><span class="path">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
-    html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
-    html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-    html += renderProgressLog([]);
-    return html;
-  }
+    // ── Page table rendering ─────────────────────────────────────────
 
-  // Validating — live progress
-  if (st === 'validating') {
-    const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
-    let html = '';
-    html += `<div><span class="label">Run in VS Code Chat:</span> `;
-    html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-    html += renderProgressLog(p.progress_log);
-    return html;
-  }
+    function renderPages(data) {
+      const tbody = document.getElementById('pagesBody');
+      const entries = Object.values(data);
+      if (!entries.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>';
+        return;
+      }
 
-  // Validated — show scores + report link
-  if (st === 'validated') {
-    let html = '';
-    if (p.change_detected) {
-      html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence since validation — add <code>governance-ready</code> label or click Mark Ready to re-validate</div>`;
-    }
-    html += renderScoreCard(p.report_scores);
-    html += renderProgressLog(p.progress_log);
-    return html;
-  }
+      tbody.innerHTML = entries.map(p => {
+        const st = p.status || 'pending';
+        const isIndex = p.mode === 'index';
 
-  return '';
-}
+        const modeLabel = isIndex
+          ? `<span class="mode-tag mode-index">index / ${p.index}</span>`
+          : `<span class="mode-tag mode-validate">validate</span>`;
 
-// ── Page table rendering ─────────────────────────────────────────
+        const canPreview = ['ingested', 'validating', 'validated'].includes(st);
+        const previewBtn = canPreview
+          ? `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`
+          : '';
 
-function renderPages(data) {
-  const tbody = document.getElementById('pagesBody');
-  const entries = Object.values(data);
-  if (!entries.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>';
-    return;
-  }
+        const reportBtn = st === 'validated'
+          ? `<button class="btn-sm purple" onclick="viewReport('${p.page_id}')">Report</button>`
+          : '';
 
-  tbody.innerHTML = entries.map(p => {
-    const st = p.status || 'pending';
-    const isIndex = p.mode === 'index';
+        const hasRules = isIndex && (p.rules_count > 0 || p.rules_summary) && st === 'ingested';
+        const rulesBtn = hasRules
+          ? `<button class="btn-sm" onclick="viewRules('${p.page_id}')">Rules</button>`
+          : '';
 
-    const modeLabel = isIndex
-      ? `<span class="mode-tag mode-index">index / ${p.index}</span>`
-      : `<span class="mode-tag mode-validate">validate</span>`;
+        const rerunLabel = isIndex ? 'Re-index' : 'Re-ingest';
+        const rerunBtn = ['ingested', 'error', 'validated'].includes(st)
+          ? `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">${rerunLabel}</button>`
+          : '';
 
-    const canPreview = ['ingested','validating','validated'].includes(st);
-    const previewBtn = canPreview
-      ? `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`
-      : '';
+        const showMarkReady = st === 'pending' || (p.change_detected && ['ingested', 'validated'].includes(st));
+        const markReadyBtn = showMarkReady
+          ? `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`
+          : '';
 
-    const reportBtn = st === 'validated'
-      ? `<button class="btn-sm purple" onclick="viewReport('${p.page_id}')">Report</button>`
-      : '';
+        let statusExtra = '';
+        if (p.error) statusExtra = `<div class="error-msg">${p.error}</div>`;
 
-    const hasRules = isIndex && (p.rules_count > 0 || p.rules_summary) && st === 'ingested';
-    const rulesBtn = hasRules
-      ? `<button class="btn-sm" onclick="viewRules('${p.page_id}')">Rules</button>`
-      : '';
+        const details = buildDetails(p);
 
-    const rerunLabel = isIndex ? 'Re-index' : 'Re-ingest';
-    const rerunBtn = ['ingested','error','validated'].includes(st)
-      ? `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">${rerunLabel}</button>`
-      : '';
-
-    const showMarkReady = st === 'pending' || (p.change_detected && ['ingested','validated'].includes(st));
-    const markReadyBtn = showMarkReady
-      ? `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`
-      : '';
-
-    let statusExtra = '';
-    if (p.error) statusExtra = `<div class="error-msg">${p.error}</div>`;
-
-    const details = buildDetails(p);
-
-    return `<tr>
+        return `<tr>
       <td><code>${p.page_id}</code></td>
       <td>${p.title || '\u2014'}</td>
       <td>${modeLabel}</td>
@@ -449,95 +799,96 @@ function renderPages(data) {
         <button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>
       </td>
     </tr>`;
-  }).join('');
+      }).join('');
 
-  // Auto-scroll any progress logs
-  document.querySelectorAll('#progressScroll').forEach(el => {
-    el.scrollTop = el.scrollHeight;
-  });
-}
+      // Auto-scroll any progress logs
+      document.querySelectorAll('#progressScroll').forEach(el => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
 
-// ── Actions ──────────────────────────────────────────────────────
+    // ── Actions ──────────────────────────────────────────────────────
 
-async function submitPage() {
-  const pageId = document.getElementById('pageId').value.trim();
-  if (!pageId) return;
-  const mode = document.getElementById('modeSelect').value;
-  const category = document.getElementById('categorySelect').value;
+    async function submitPage() {
+      const pageId = document.getElementById('pageId').value.trim();
+      if (!pageId) return;
+      const mode = document.getElementById('modeSelect').value;
+      const category = document.getElementById('categorySelect').value;
 
-  const body = { page_id: pageId, mode };
-  if (mode === 'index') body.index = category;
+      const body = {page_id: pageId, mode};
+      if (mode === 'index') body.index = category;
 
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    alert(err.detail || 'Failed to add page');
-    return;
-  }
-  document.getElementById('pageId').value = '';
-}
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.detail || 'Failed to add page');
+        return;
+      }
+      document.getElementById('pageId').value = '';
+    }
 
-async function removePage(pageId) {
-  await fetch(`${API}/${pageId}`, {method: 'DELETE'});
-}
+    async function removePage(pageId) {
+      await fetch(`${API}/${pageId}`, {method: 'DELETE'});
+    }
 
-async function resetAll() {
-  if (!confirm('Remove ALL watched pages and delete all output/index folders?\n\nThis cannot be undone.')) return;
-  const res = await fetch(API, {method: 'DELETE'});
-  if (res.ok) {
-    const data = await res.json();
-    alert(`Removed ${data.removed_pages} page(s). Cleaned: ${data.cleaned_folders.join(', ') || 'nothing'}`);
-  } else {
-    alert('Reset failed');
-  }
-}
+    async function resetAll() {
+      if (!confirm('Remove ALL watched pages and delete all output/index folders?\n\nThis cannot be undone.')) return;
+      const res = await fetch(API, {method: 'DELETE'});
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Removed ${data.removed_pages} page(s). Cleaned: ${data.cleaned_folders.join(', ') || 'nothing'}`);
+      } else {
+        alert('Reset failed');
+      }
+    }
 
-async function ingestPage(pageId) {
-  await fetch(`${API}/${pageId}/ingest`, {method: 'POST'});
-}
+    async function ingestPage(pageId) {
+      await fetch(`${API}/${pageId}/ingest`, {method: 'POST'});
+    }
 
-async function markReady(pageId) {
-  const res = await fetch(`${API}/${pageId}/mark-ready`, {method: 'POST'});
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    alert(err.detail || 'Could not add label');
-  }
-}
+    async function markReady(pageId) {
+      const res = await fetch(`${API}/${pageId}/mark-ready`, {method: 'POST'});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Could not add label');
+      }
+    }
 
-function copyCmd(el) {
-  navigator.clipboard.writeText(el.textContent).then(() => {
-    el.classList.add('copied');
-    setTimeout(() => el.classList.remove('copied'), 1200);
-  });
-}
+    function copyCmd(el) {
+      navigator.clipboard.writeText(el.textContent).then(() => {
+        el.classList.add('copied');
+        setTimeout(() => el.classList.remove('copied'), 1200);
+      });
+    }
 
-// ── SSE — Server-Sent Events (no polling) ────────────────────────
+    // ── SSE — Server-Sent Events (no polling) ────────────────────────
 
-function connectSSE() {
-  const source = new EventSource('/api/events');
-  source.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      renderPages(data);
-    } catch (e) { /* ignore parse errors on keepalive */ }
-  };
-  source.onerror = () => {
-    source.close();
-    setTimeout(connectSSE, 3000);
-  };
-}
+    function connectSSE() {
+      const source = new EventSource('/api/events');
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          renderPages(data);
+        } catch (e) { /* ignore parse errors on keepalive */}
+      };
+      source.onerror = () => {
+        source.close();
+        setTimeout(connectSSE, 3000);
+      };
+    }
 
-// Force default mode on load (prevents browser form restoration)
-document.getElementById('modeSelect').value = 'validate';
-onModeChange();
+    // Force default mode on load (prevents browser form restoration)
+    document.getElementById('modeSelect').value = 'validate';
+    onModeChange();
 
-// Initial fetch then switch to SSE
-fetch(API).then(r => r.json()).then(renderPages).catch(() => {});
-connectSSE();
-</script>
+    // Initial fetch then switch to SSE
+    fetch(API).then(r => r.json()).then(renderPages).catch(() => { });
+    connectSSE();
+  </script>
 </body>
+
 </html>
