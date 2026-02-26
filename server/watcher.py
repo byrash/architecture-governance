@@ -187,9 +187,13 @@ async def poll_loop(store: WatcherStore) -> None:
                         store.update_page(page_id, title=title)
 
                     stored_version = info.get("last_version")
-                    version_changed = (
-                        stored_version is not None and version != stored_version
-                    )
+
+                    # Always store baseline version on first poll
+                    if stored_version is None:
+                        store.update_page(page_id, last_version=version)
+                        stored_version = version
+
+                    version_changed = version != stored_version
 
                     if version_changed:
                         store.update_page(page_id, last_version=version)
@@ -200,16 +204,12 @@ async def poll_loop(store: WatcherStore) -> None:
                             f"(v{stored_version} -> v{version})",
                             file=sys.stderr,
                         )
-                        if stored_version is None:
-                            store.update_page(page_id, last_version=version)
 
                         is_index = info.get("mode") == "index"
                         loop = asyncio.get_event_loop()
                         await loop.run_in_executor(
                             None, _run_ingest, page_id, store,
                         )
-                        # Index mode: remove label now (pipeline done).
-                        # Validate mode: label stays until report is posted.
                         if is_index:
                             await loop.run_in_executor(
                                 None, _remove_label, confluence, page_id,

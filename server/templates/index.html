@@ -163,7 +163,7 @@
   <div class="add-form">
     <input type="text" id="pageId" placeholder="Confluence Page ID" />
     <select id="modeSelect" onchange="onModeChange()">
-      <option value="validate">Validate</option>
+      <option value="validate" selected>Validate</option>
       <option value="index">Index</option>
     </select>
     <select id="categorySelect" class="hidden">
@@ -309,7 +309,7 @@ function buildDetails(p) {
   const st = p.status || 'pending';
   const isIndex = p.mode === 'index';
 
-  if (st === 'pending') return '<span style="color:var(--muted)">Waiting for ingestion...</span>';
+  if (st === 'pending') return '<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion…</span>';
   if (st === 'ingesting') return '<span style="color:var(--yellow)">Ingesting from Confluence...</span>';
   if (st === 'error') return '';
 
@@ -418,7 +418,7 @@ function renderPages(data) {
       ? `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">${rerunLabel}</button>`
       : '';
 
-    const showMarkReady = p.change_detected && ['ingested','validated'].includes(st);
+    const showMarkReady = st === 'pending' || (p.change_detected && ['ingested','validated'].includes(st));
     const markReadyBtn = showMarkReady
       ? `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`
       : '';
@@ -513,6 +513,10 @@ function connectSSE() {
     setTimeout(connectSSE, 3000);
   };
 }
+
+// Force default mode on load (prevents browser form restoration)
+document.getElementById('modeSelect').value = 'validate';
+onModeChange();
 
 // Initial fetch then switch to SSE
 fetch(API).then(r => r.json()).then(renderPages).catch(() => {});
