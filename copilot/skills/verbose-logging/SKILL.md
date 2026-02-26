@@ -14,6 +14,10 @@ Each agent has its own logging format. Find your agent name below and use the co
 
 ## governance-agent
 
+### Watcher Webhook
+
+After each step announcement below, also POST a progress update to the watcher server so the UI shows live progress. See the governance-agent instructions for the curl command format. Use `|| true` so failures are silent.
+
 ### Pipeline Start
 ```
 ═══════════════════════════════════════════════════════════════════

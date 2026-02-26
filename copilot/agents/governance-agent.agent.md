@@ -39,6 +39,19 @@ Use the agent tool to trigger: patterns-agent
 With prompt: "Validate governance/output/<PAGE_ID>/page.md"
 ```
 
+## Progress Webhook
+
+The watcher server UI shows live progress for each validation run. After completing each step, **use the execute tool** to POST a progress update. If the server is not running, the curl will fail silently -- that is fine, continue the pipeline regardless.
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":<N>,"agent":"<AGENT>","status":"<STATUS>","message":"<MSG>"}' || true
+```
+
+- Replace `<N>` with the step number, `<AGENT>` with the agent name, `<STATUS>` with `start`, `complete`, or `error`, and `<MSG>` with a short human-readable message.
+- The `|| true` ensures the pipeline continues even if the server is down.
+
 ## Workflow
 
 When given a Confluence page ID to validate, execute these steps:
@@ -53,8 +66,8 @@ Check if the ingested page exists:
 ls governance/output/<PAGE_ID>/page.md
 ```
 
-- **If it exists** → proceed to Step 2. No ingestion needed.
-- **If it does NOT exist** → ingest as a fallback:
+- **If it exists** -- proceed to Step 2. No ingestion needed.
+- **If it does NOT exist** -- ingest as a fallback:
 
   ```bash
   source .venv/bin/activate && python -c "
@@ -65,6 +78,14 @@ ls governance/output/<PAGE_ID>/page.md
   ```
 
 Output expected at: `governance/output/<PAGE_ID>/page.md`
+
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":1,"agent":"governance-agent","status":"complete","message":"Page verified at governance/output/<PAGE_ID>/page.md"}' || true
+```
 
 ### Step 2: Ensure Rules Exist
 
@@ -88,9 +109,15 @@ For each index where `_all.rules.md` is **missing** but `<PAGE_ID>/page.md` subf
 
   Or for refresh of stale only: `python -m ingest.extract_rules --folder governance/indexes/<index>/ --refresh`
 
-For each index where `_all.rules.md` is missing AND **no indexed pages exist**: log a warning — validation for that category will have no reference rules.
+For each index where `_all.rules.md` is missing AND **no indexed pages exist**: log a warning -- validation for that category will have no reference rules.
 
-**Note**: Rules extraction runs automatically during index-mode ingestion (zero LLM, deterministic). The CLI is for manual runs when rules need to be refreshed.
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Rules indexes verified"}' || true
+```
 
 ### Steps 3-5: Trigger ALL Validation Agents (PARALLEL)
 
@@ -100,29 +127,61 @@ For each index where `_all.rules.md` is missing AND **no indexed pages exist**: 
 2. Agent: `standards-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 3. Agent: `security-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
+**Post progress when triggering:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":3,"agent":"governance-agent","status":"start","message":"Triggering patterns, standards, and security agents in parallel"}' || true
+```
+
 Wait for ALL three to complete before proceeding to Step 6 (merge).
+
+**Post progress when all complete:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":5,"agent":"governance-agent","status":"complete","message":"All 3 validation agents finished"}' || true
+```
 
 ### Step 6: Merge Reports (Incremental)
 
 Use the `merge-reports` skill. Process reports **one at a time** to avoid loading all three simultaneously:
 
-1. Read patterns report → extract score, counts, critical issues → write to extract file → release
-2. Read standards report → extract and append → release
-3. Read security report → extract and append → release
-4. Read the compact extract file → calculate weighted score `(P×0.30 + S×0.30 + Sec×0.40)` → write `<PAGE_ID>-governance-report.md`
+1. Read patterns report -- extract score, counts, critical issues -- write to extract file -- release
+2. Read standards report -- extract and append -- release
+3. Read security report -- extract and append -- release
+4. Read the compact extract file -- calculate weighted score `(P*0.30 + S*0.30 + Sec*0.40)` -- write `<PAGE_ID>-governance-report.md`
 5. Delete the extract file
+
+**Post progress (include the computed scores):**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100"}' || true
+```
 
 ### Step 7: Generate HTML Dashboard (Incremental)
 
 Use the `markdown-to-html` skill. Build the HTML file in phases -- one source report at a time:
 
-1. Read governance report (compact) → write HTML shell with scores, summary, critical issues
-2. Read patterns report → extract findings table → append as `<details>` block → release
-3. Read standards report → extract findings table → append as `<details>` block → release
-4. Read security report → extract findings table → append as `<details>` block → release
-5. Close HTML tags → `governance/output/<PAGE_ID>-governance-report.html`
+1. Read governance report (compact) -- write HTML shell with scores, summary, critical issues
+2. Read patterns report -- extract findings table -- append as `<details>` block -- release
+3. Read standards report -- extract findings table -- append as `<details>` block -- release
+4. Read security report -- extract findings table -- append as `<details>` block -- release
+5. Close HTML tags -- `governance/output/<PAGE_ID>-governance-report.html`
 
-### Step 8: Post Report to Confluence Page
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":7,"agent":"governance-agent","status":"complete","message":"HTML dashboard generated"}' || true
+```
+
+### Step 8: Post Report to Confluence Page and Notify Watcher
 
 **Use the execute tool** to post the governance report as a comment on the original Confluence page:
 
@@ -134,7 +193,13 @@ print(result)
 "
 ```
 
-This adds the full governance report as a Confluence page comment so the architecture team can see results directly in Confluence without leaving their workflow.
+**Then notify the watcher server with the final scores** so the UI shows the score card. Replace `<SCORE>`, `<PAT>`, `<STD>`, `<SEC>` with the actual computed values and `<RESULT>` with `pass` or `fail`:
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/report \
+  -H 'Content-Type: application/json' \
+  -d '{"score":<SCORE>,"status":"<RESULT>","patterns":<PAT>,"standards":<STD>,"security":<SEC>}' || true
+```
 
 ## Verbose Logging
 

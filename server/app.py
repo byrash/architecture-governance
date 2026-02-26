@@ -2,21 +2,22 @@
 FastAPI application for the Architecture Governance page watcher.
 
 Provides a web UI and REST API for managing watched Confluence pages,
-triggering ingestion/indexing, previewing pages, and showing VS Code
-Chat commands for governance validation.
+triggering ingestion/indexing, live progress tracking from the
+governance-agent via webhooks, and displaying reports.
 """
 
 import asyncio
+import json
 import traceback
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from server.store import WatcherStore
-from server.watcher import poll_loop
+from server.store import WatcherStore, parse_rules_summary
+from server.watcher import add_trigger_label, poll_loop, remove_trigger_label
 
 try:
     from dotenv import load_dotenv
@@ -58,54 +59,62 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+def _md_to_html(path: Path) -> str:
+    """Render a markdown file to HTML. Falls back to <pre> if markdown lib missing."""
+    md_content = path.read_text(encoding="utf-8")
+    try:
+        import markdown
+        return markdown.markdown(md_content, extensions=["tables", "fenced_code", "toc"])
+    except ImportError:
+        return f"<pre>{md_content}</pre>"
+
+
 @app.get("/pages/{page_id}/preview", response_class=HTMLResponse)
 async def preview_page(page_id: str):
-    """Render an ingested page.md as styled HTML."""
+    """Render an ingested page.md as styled HTML (used by modal overlay)."""
     md_path = Path("governance/output") / page_id / "page.md"
     if not md_path.exists():
         raise HTTPException(status_code=404, detail=f"page.md not found for {page_id}")
-
-    md_content = md_path.read_text(encoding="utf-8")
-
-    try:
-        import markdown
-        html_body = markdown.markdown(
-            md_content,
-            extensions=["tables", "fenced_code", "toc"],
-        )
-    except ImportError:
-        html_body = f"<pre>{md_content}</pre>"
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Page {page_id} — Preview</title>
-<style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-         max-width: 960px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #24292f; }}
-  table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
-  th, td {{ border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; }}
-  th {{ background: #f6f8fa; font-weight: 600; }}
-  tr:nth-child(even) {{ background: #f6f8fa; }}
-  code {{ background: #f6f8fa; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }}
-  pre {{ background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }}
-  h1, h2, h3, h4, h5, h6 {{ margin-top: 24px; }}
-  a {{ color: #0969da; }}
-  .back {{ display: inline-block; margin-bottom: 16px; color: #0969da; text-decoration: none; }}
-  .back:hover {{ text-decoration: underline; }}
-</style>
-</head>
-<body>
-<a class="back" href="/">&larr; Back to Watcher</a>
-{html_body}
-</body>
-</html>"""
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=_md_to_html(md_path))
 
 
 # ──────────────────────────────────────────────────────────────────
-# REST API
+# SSE — Server-Sent Events (replaces polling)
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """SSE stream that pushes the full page list on every store change."""
+
+    async def event_generator():
+        last_version = -1
+        while True:
+            if await request.is_disconnected():
+                break
+            data = json.dumps(store.list_pages(), default=str)
+            yield f"data: {data}\n\n"
+            last_version = store.version
+            try:
+                await asyncio.wait_for(
+                    store.wait_for_change(last_version),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# REST API — Pages
 # ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/pages")
@@ -119,7 +128,7 @@ async def add_page(request: Request):
     page_id = body.get("page_id")
     if not page_id:
         raise HTTPException(status_code=400, detail="page_id is required")
-    mode = body.get("mode", "index")
+    mode = body.get("mode", "validate")
     index = body.get("index")
     if mode == "index":
         if not index or index not in ("patterns", "standards", "security"):
@@ -145,7 +154,11 @@ async def trigger_ingest(page_id: str):
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
 
-    store.update_page(page_id, status="ingesting", error=None)
+    store.update_page(
+        page_id, status="ingesting", error=None,
+        stale_validation=False, change_detected=False,
+    )
+    store.clear_progress(page_id)
     loop = asyncio.get_event_loop()
 
     try:
@@ -159,6 +172,9 @@ async def trigger_ingest(page_id: str):
             index_path=result.get("index_path"),
             rules_count=result.get("rules_count"),
             rules_summary=result.get("rules_summary"),
+            report_scores=None,
+            stale_validation=False,
+            change_detected=False,
             error=None,
         )
         return JSONResponse(content=result)
@@ -167,6 +183,131 @@ async def trigger_ingest(page_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+@app.post("/api/pages/{page_id}/mark-ready")
+async def mark_ready(page_id: str):
+    """Add the trigger label to a Confluence page so the next poll triggers ingestion."""
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, add_trigger_label, page_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return JSONResponse(content={"ok": True, "label_added": True})
+
+
+# ──────────────────────────────────────────────────────────────────
+# REST API — Progress (webhook from governance-agent)
+# ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/pages/{page_id}/progress")
+async def post_progress(page_id: str, request: Request):
+    """Accept a progress log entry from the governance-agent.
+
+    On the first entry, auto-transitions status from ingested -> validating.
+    """
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    body = await request.json()
+    store.append_progress(page_id, body)
+
+    if info.get("status") == "ingested":
+        store.update_page(page_id, status="validating", stale_validation=False)
+
+    return JSONResponse(content={"ok": True})
+
+
+@app.get("/api/pages/{page_id}/progress")
+async def get_progress(page_id: str):
+    """Return the full progress log for a page."""
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+    return JSONResponse(content={
+        "status": info.get("status"),
+        "progress": store.get_progress(page_id),
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# REST API — Report (webhook from governance-agent)
+# ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/pages/{page_id}/report")
+async def post_report(page_id: str, request: Request):
+    """Accept the final report scores from the governance-agent.
+
+    Sets status to validated, stores the score breakdown, and removes the
+    trigger label from the Confluence page (best-effort, non-blocking).
+    """
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    body = await request.json()
+    store.update_page(
+        page_id,
+        status="validated",
+        validated_at=datetime.now().isoformat(),
+        report_scores=body,
+        change_detected=False,
+    )
+    store.append_progress(page_id, {
+        "step": "done",
+        "agent": "governance-agent",
+        "status": "complete",
+        "message": f"Validation complete — score {body.get('score', '?')}/100",
+    })
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, remove_trigger_label, page_id)
+
+    return JSONResponse(content={"ok": True})
+
+
+@app.get("/api/pages/{page_id}/report")
+async def get_report(page_id: str):
+    """Return the governance HTML report for the modal overlay."""
+    html_report = Path("governance/output") / f"{page_id}-governance-report.html"
+    md_report = Path("governance/output") / f"{page_id}-governance-report.md"
+
+    if html_report.exists():
+        return HTMLResponse(content=html_report.read_text(encoding="utf-8"))
+    if md_report.exists():
+        return HTMLResponse(content=_md_to_html(md_report))
+
+    raise HTTPException(status_code=404, detail="Report not found")
+
+
+@app.get("/api/pages/{page_id}/rules")
+async def get_rules(page_id: str):
+    """Return the rules.md rendered as HTML for the modal overlay."""
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    candidates = []
+    index_path = info.get("index_path")
+    if index_path:
+        candidates.append(Path(index_path) / "rules.md")
+    candidates.append(Path("governance/output") / page_id / "rules.md")
+
+    for path in candidates:
+        if path.exists():
+            return HTMLResponse(content=_md_to_html(path))
+
+    raise HTTPException(status_code=404, detail="rules.md not found")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────
 
 def _run_ingest_sync(page_id: str, info: dict) -> dict:
     """Synchronous ingest. Returns rich metadata for the UI."""
@@ -196,7 +337,7 @@ def _run_ingest_sync(page_id: str, info: dict) -> dict:
 
         rules_md = Path(index_path) / "rules.md"
         if rules_md.exists():
-            rules_info = _parse_rules_summary(rules_md)
+            rules_info = parse_rules_summary(rules_md)
             response["rules_count"] = rules_info["total"]
             response["rules_summary"] = rules_info
 
@@ -205,31 +346,6 @@ def _run_ingest_sync(page_id: str, info: dict) -> dict:
         print(f"[ingest] Ingested {page_id} -> {output_path}", file=sys.stderr)
 
     return response
-
-
-def _parse_rules_summary(rules_md: Path) -> dict:
-    """Parse a rules.md file and return a severity summary."""
-    sev_counts = {"C": 0, "H": 0, "M": 0, "L": 0}
-    total = 0
-    rules = []
-
-    in_table = False
-    for line in rules_md.read_text(encoding="utf-8").split("\n"):
-        if line.startswith("| ID") or line.startswith("|-"):
-            in_table = True
-            continue
-        if in_table and line.startswith("|"):
-            cols = [c.strip() for c in line.split("|")[1:-1]]
-            if len(cols) >= 3:
-                total += 1
-                sev = cols[2]
-                if sev in sev_counts:
-                    sev_counts[sev] += 1
-                rules.append({"id": cols[0], "rule": cols[1], "sev": sev})
-        elif in_table and not line.startswith("|"):
-            in_table = False
-
-    return {"total": total, "severity": sev_counts, "rules": rules}
 
 
 # ──────────────────────────────────────────────────────────────────
