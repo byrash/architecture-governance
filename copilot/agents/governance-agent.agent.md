@@ -167,33 +167,103 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 
 ### Step 6: Merge Reports (Incremental)
 
-Use the `merge-reports` skill. Process reports **one at a time** to avoid loading all three simultaneously:
+Use the `merge-reports` skill. Process reports **one at a time** to avoid loading all three simultaneously. **Post progress before each phase** so the UI stays alive:
 
-1. Read patterns report -- extract score, counts, critical issues -- write to extract file -- release
-2. Read standards report -- extract and append -- release
-3. Read security report -- extract and append -- release
-4. Read the compact extract file -- calculate weighted score `(P*0.30 + S*0.30 + Sec*0.40)` -- write `<PAGE_ID>-governance-report.md`
-5. Delete the extract file
-
-**Post progress (include the computed scores):**
+**6a. Start merge:**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns x0.30 + standards x0.30 + security x0.40"}' || true
+  -d '{"step":"6a","agent":"governance-agent","status":"running","message":"Merging reports — extracting patterns scores","detail":"Reading patterns-report.md to extract score, counts, and critical issues"}' || true
+```
+
+1. Read patterns report -- extract score, counts, critical issues -- write to extract file -- release
+
+**6b. Standards extract:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"6b","agent":"governance-agent","status":"running","message":"Merging reports — extracting standards scores","detail":"Reading standards-report.md to extract score, counts, and critical issues"}' || true
+```
+
+2. Read standards report -- extract and append -- release
+
+**6c. Security extract:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"6c","agent":"governance-agent","status":"running","message":"Merging reports — extracting security scores","detail":"Reading security-report.md to extract score, counts, and critical issues"}' || true
+```
+
+3. Read security report -- extract and append -- release
+
+**6d. Calculate and write final report:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"6d","agent":"governance-agent","status":"running","message":"Calculating weighted score and writing governance report","detail":"Formula: patterns x0.30 + standards x0.30 + security x0.40"}' || true
+```
+
+4. Read the compact extract file -- calculate weighted score `(P*0.30 + S*0.30 + Sec*0.40)` -- write `<PAGE_ID>-governance-report.md`
+5. Delete the extract file
+
+**6 done:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns <PAT> x0.30 + standards <STD> x0.30 + security <SEC> x0.40"}' || true
 ```
 
 ### Step 7: Generate HTML Dashboard (Incremental)
 
-Use the `markdown-to-html` skill. Build the HTML file in phases -- one source report at a time:
+Use the `markdown-to-html` skill. Build the HTML file in phases -- one source report at a time. **Post progress before each phase:**
+
+**7a. Write HTML shell:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"7a","agent":"governance-agent","status":"running","message":"Generating HTML — writing dashboard shell","detail":"Building header, score gauges, executive summary, and score breakdown"}' || true
+```
 
 1. Read governance report (compact) -- write HTML shell with scores, summary, critical issues
+
+**7b. Append patterns findings:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"7b","agent":"governance-agent","status":"running","message":"Generating HTML — appending patterns findings","detail":"Extracting patterns table rows into collapsible details section"}' || true
+```
+
 2. Read patterns report -- extract findings table -- append as `<details>` block -- release
+
+**7c. Append standards findings:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"7c","agent":"governance-agent","status":"running","message":"Generating HTML — appending standards findings","detail":"Extracting standards table rows into collapsible details section"}' || true
+```
+
 3. Read standards report -- extract findings table -- append as `<details>` block -- release
+
+**7d. Append security findings:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"7d","agent":"governance-agent","status":"running","message":"Generating HTML — appending security findings","detail":"Extracting security table rows into collapsible details section"}' || true
+```
+
 4. Read security report -- extract findings table -- append as `<details>` block -- release
 5. Close HTML tags -- `governance/output/<PAGE_ID>-governance-report.html`
 
-**Post progress:**
+**7 done:**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
@@ -203,6 +273,14 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 
 ### Step 8: Post Report to Confluence Page and Notify Watcher
 
+**8a. Post to Confluence:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"8a","agent":"governance-agent","status":"running","message":"Posting report to Confluence page","detail":"Adding styled governance report as page comment"}' || true
+```
+
 **Use the execute tool** to post the governance report as a comment on the original Confluence page:
 
 ```bash
@@ -211,6 +289,14 @@ from ingest import post_report_to_confluence
 result = post_report_to_confluence(page_id='<PAGE_ID>')
 print(result)
 "
+```
+
+**8b. Notify watcher with final scores:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"8b","agent":"governance-agent","status":"running","message":"Sending final scores to dashboard","detail":"Score: <SCORE>/100 — patterns: <PAT>, standards: <STD>, security: <SEC>"}' || true
 ```
 
 **Then notify the watcher server with the final scores** so the UI shows the score card. Replace `<SCORE>`, `<PAT>`, `<STD>`, `<SEC>` with the actual computed values and `<RESULT>` with `pass` or `fail`:

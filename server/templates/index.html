@@ -716,7 +716,15 @@
         return html;
       }).join('');
 
-      return `<div class="progress-log" id="progressScroll">${lines}</div>`;
+      let tail = '';
+      if (isActive) {
+        const lastSt = logs[lastIdx].status || '';
+        if (lastSt === 'complete' || lastSt === 'error') {
+          tail = '<div class="log-entry log-tail"><span class="log-spinner"></span> <span style="color:var(--muted);font-size:0.85em">Working...</span></div>';
+        }
+      }
+
+      return `<div class="progress-log" id="progressScroll">${lines}${tail}</div>`;
     }
 
     function renderScoreCard(scores) {
@@ -871,7 +879,7 @@
       <td><code>${p.page_id}</code></td>
       <td>${p.title || '\u2014'}</td>
       <td>${modeLabel}</td>
-      <td><span class="status status-${st}">${st}</span>${statusExtra}</td>
+      <td><span class="status status-${st}">${(st === 'validating' || st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>${statusExtra}</td>
       <td class="info-cell">${details}</td>
       <td class="actions">
         ${markReadyBtn}
