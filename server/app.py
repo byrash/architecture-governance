@@ -6,6 +6,8 @@ triggering ingestion/indexing, live progress tracking from the
 governance-agent via webhooks, and displaying reports.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import shutil
