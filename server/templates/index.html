@@ -339,21 +339,63 @@
       white-space: pre-wrap;
     }
 
-    .log-icon-complete {
-      color: #a6e3a1;
+    .progress-log .log-entry.sub-agent {
+      padding-left: 16px;
+      border-left: 2px solid #45475a;
+      margin-left: 4px;
     }
 
-    .log-icon-start {
-      color: #f9e2af;
-    }
-
-    .log-icon-error {
-      color: #f38ba8;
-    }
+    .log-icon-complete { color: #a6e3a1; }
+    .log-icon-start { color: #f9e2af; }
+    .log-icon-error { color: #f38ba8; }
 
     .log-waiting {
       color: #6c7086;
       font-style: italic;
+    }
+
+    .log-detail {
+      color: #6c7086;
+      font-size: 0.68rem;
+      padding-left: 18px;
+    }
+
+    .agent-badge {
+      display: inline-block;
+      padding: 0 5px;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .agent-badge.patterns { background: #1e3a5f; color: #89b4fa; }
+    .agent-badge.standards { background: #1e3b2e; color: #a6e3a1; }
+    .agent-badge.security { background: #3b1e2e; color: #f38ba8; }
+    .agent-badge.governance { background: #2e2640; color: #cba6f7; }
+
+    /* Spinner */
+    .log-spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #f9e2af;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
     }
 
     /* Score card */
@@ -404,7 +446,8 @@
       position: fixed;
       inset: 0;
       z-index: 1000;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(4px);
       justify-content: center;
       align-items: center;
     }
@@ -414,21 +457,23 @@
     }
 
     .modal-box {
-      background: white;
-      border-radius: 10px;
-      width: 90vw;
-      max-width: 960px;
-      max-height: 85vh;
+      background: #f9fafb;
+      border-radius: 14px;
+      width: 92vw;
+      max-width: 1080px;
+      max-height: 90vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0,0,0,0.05);
+      overflow: hidden;
     }
 
     .modal-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 14px 20px;
+      padding: 16px 24px;
+      background: white;
       border-bottom: 1px solid var(--border);
       font-weight: 600;
       font-size: 0.95rem;
@@ -437,11 +482,12 @@
     .modal-close {
       background: none;
       border: none;
-      font-size: 1.3rem;
+      font-size: 1.4rem;
       cursor: pointer;
       color: var(--muted);
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: all 0.15s;
     }
 
     .modal-close:hover {
@@ -450,12 +496,16 @@
     }
 
     .modal-body {
-      padding: 20px;
+      padding: 24px;
       overflow-y: auto;
       flex: 1;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.6;
       color: var(--text);
+    }
+
+    .modal-body > .report-root {
+      margin: -24px;
     }
 
     .modal-body table {
@@ -467,17 +517,21 @@
     .modal-body th,
     .modal-body td {
       border: 1px solid #d0d7de;
-      padding: 8px 12px;
+      padding: 10px 14px;
       text-align: left;
     }
 
     .modal-body th {
       background: #f6f8fa;
       font-weight: 600;
+      font-size: 0.85em;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #656d76;
     }
 
     .modal-body tr:nth-child(even) {
-      background: #f6f8fa;
+      background: #f9fafb;
     }
 
     .modal-body code {
@@ -490,7 +544,7 @@
     .modal-body pre {
       background: #f6f8fa;
       padding: 16px;
-      border-radius: 6px;
+      border-radius: 8px;
       overflow-x: auto;
     }
 
@@ -614,25 +668,54 @@
 
     // ── Progress rendering ───────────────────────────────────────────
 
-    function renderProgressLog(logs) {
+    function renderProgressLog(logs, isActive) {
       if (!logs || !logs.length) {
+        if (isActive) {
+          return '<div class="progress-log"><span class="log-spinner"></span> <span class="log-waiting">Waiting for agent to start...</span></div>';
+        }
         return '<div class="progress-log"><span class="log-waiting">Waiting for agent to start...</span></div>';
       }
-      const lines = logs.map(l => {
-        const st = l.status || '';
-        let icon = '';
-        let cls = '';
-        if (st === 'complete') {icon = '\u2713'; cls = 'log-icon-complete';}
-        else if (st === 'start' || st === 'running') {icon = '\u25B6'; cls = 'log-icon-start';}
-        else if (st === 'error') {icon = '\u2717'; cls = 'log-icon-error';}
-        else {icon = '\u2022'; cls = 'log-icon-start';}
 
-        const agent = l.agent ? `[${l.agent}] ` : '';
+      const lastIdx = logs.length - 1;
+      const lines = logs.map((l, i) => {
+        const st = l.status || '';
+        const isLast = i === lastIdx;
+        const isRunning = isLast && isActive && st !== 'complete' && st !== 'error';
+
+        let iconHtml = '';
+        if (isRunning) {
+          iconHtml = '<span class="log-spinner"></span>';
+        } else if (st === 'complete') {
+          iconHtml = '<span class="log-icon-complete">\u2713</span>';
+        } else if (st === 'start' || st === 'running') {
+          iconHtml = '<span class="log-icon-start">\u25B6</span>';
+        } else if (st === 'error') {
+          iconHtml = '<span class="log-icon-error">\u2717</span>';
+        } else {
+          iconHtml = '<span class="log-icon-start">\u2022</span>';
+        }
+
+        const agentName = l.agent || '';
+        const isSubAgent = agentName && agentName !== 'governance-agent';
+        let badgeHtml = '';
+        if (agentName) {
+          const badgeCls = agentName.includes('patterns') ? 'patterns'
+            : agentName.includes('standards') ? 'standards'
+            : agentName.includes('security') ? 'security' : 'governance';
+          badgeHtml = `<span class="agent-badge ${badgeCls}">${agentName}</span>`;
+        }
+
         const stepLabel = l.step !== undefined && l.step !== 'done' ? `Step ${l.step}: ` : '';
         const msg = l.message || '';
-        const detail = l.detail ? ` — ${l.detail}` : '';
-        return `<div class="log-entry"><span class="${cls}">${icon}</span> ${agent}${stepLabel}${msg}${detail}</div>`;
+        const entryCls = isSubAgent ? 'log-entry sub-agent' : 'log-entry';
+
+        let html = `<div class="${entryCls}">${iconHtml} ${badgeHtml}${stepLabel}${msg}</div>`;
+        if (l.detail) {
+          html += `<div class="log-detail${isSubAgent ? ' sub-agent' : ''}">${l.detail}</div>`;
+        }
+        return html;
       }).join('');
+
       return `<div class="progress-log" id="progressScroll">${lines}</div>`;
     }
 
@@ -666,7 +749,7 @@
       const isIndex = p.mode === 'index';
 
       if (st === 'pending') return '<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion…</span>';
-      if (st === 'ingesting') return '<span style="color:var(--yellow)">Ingesting from Confluence...</span>';
+      if (st === 'ingesting') return '<span style="color:var(--yellow)"><span class="status-spinner"></span>Ingesting from Confluence...</span>';
       if (st === 'error') return '';
 
       // Index mode — ingested
@@ -709,28 +792,28 @@
         html += `<div><span class="label">Page ingested to</span><br><span class="path">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
         html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
         html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-        html += renderProgressLog([]);
+        html += renderProgressLog([], false);
         return html;
       }
 
-      // Validating — live progress
+      // Validating — live progress (active spinner)
       if (st === 'validating') {
         const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
         let html = '';
         html += `<div><span class="label">Run in VS Code Chat:</span> `;
         html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-        html += renderProgressLog(p.progress_log);
+        html += renderProgressLog(p.progress_log, true);
         return html;
       }
 
-      // Validated — show scores + report link
+      // Validated — show scores + report link (no spinner)
       if (st === 'validated') {
         let html = '';
         if (p.change_detected) {
           html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence since validation — add <code>governance-ready</code> label or click Mark Ready to re-validate</div>`;
         }
         html += renderScoreCard(p.report_scores);
-        html += renderProgressLog(p.progress_log);
+        html += renderProgressLog(p.progress_log, false);
         return html;
       }
 
@@ -836,14 +919,8 @@
     }
 
     async function resetAll() {
-      if (!confirm('Remove ALL watched pages and delete all output/index folders?\n\nThis cannot be undone.')) return;
-      const res = await fetch(API, {method: 'DELETE'});
-      if (res.ok) {
-        const data = await res.json();
-        alert(`Removed ${data.removed_pages} page(s). Cleaned: ${data.cleaned_folders.join(', ') || 'nothing'}`);
-      } else {
-        alert('Reset failed');
-      }
+      if (!confirm('Remove all watched pages and clean output folders?\n\nThis cannot be undone.')) return;
+      await fetch(API, {method: 'DELETE'});
     }
 
     async function ingestPage(pageId) {

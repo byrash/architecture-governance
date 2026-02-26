@@ -2,12 +2,22 @@
 name: patterns-agent
 description: Architecture patterns validation agent. Validates documents against all pattern documents in the index. Use when asked to check patterns, validate design patterns, or verify pattern compliance.
 model: gpt-4.1
-tools: ['read', 'edit', 'search']
+tools: ['read', 'edit', 'search', 'execute']
 ---
 
 # Patterns Validation Agent
 
 You validate architecture documents against ALL pattern documents in the patterns index.
+
+## Progress Webhook
+
+Post progress updates so the watcher UI shows live status. Use the execute tool to run these curl commands. If the server is not running, the curl will fail silently -- continue regardless.
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"<STEP>","agent":"patterns-agent","status":"<STATUS>","message":"<MSG>","detail":"<DETAIL>"}' || true
+```
 
 ## Verbose Logging
 
@@ -32,6 +42,13 @@ Build the report on disk as you go -- never accumulate all findings in context.
 
 ### Phase 1: Setup
 
+**Post progress (start):**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"patterns-agent","status":"start","message":"Setting up patterns validation","detail":"Reading page.md, loading AST files, and querying patterns index for rules"}' || true
+```
+
 1. **Read skills** listed in the Skills Used section above
 2. **Read the architecture document** (`page.md`) -- stays in context throughout
 3. **Read all `*.ast.json` files** from `governance/output/<PAGE_ID>/attachments/` -- load AST structures for structural rule validation
@@ -41,9 +58,23 @@ Build the report on disk as you go -- never accumulate all findings in context.
    - Skills Used table
    - "Patterns Checked" table header row (no data rows yet)
 
+**Post progress (complete):**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"patterns-agent","status":"complete","message":"Setup complete — loaded <N> rules","detail":"Rules loaded from governance/indexes/patterns/_all.rules.md"}' || true
+```
+
 ### Phase 2: Validate and Append (per batch)
 
 Process rules in **batches of 50** (or all at once if total rules + page.md < 80K tokens):
+
+**Post progress at start of each batch:**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"patterns-agent","status":"running","message":"Validating rules (batch <X> of <Y>)","detail":"Checking each rule against architecture document and AST structures"}' || true
+```
 
 1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
 2. Validate each rule against page.md and loaded ASTs:
@@ -54,6 +85,13 @@ Process rules in **batches of 50** (or all at once if total rules + page.md < 80
 5. Repeat until ALL rules processed
 
 For anti-patterns: append to the Anti-Patterns Check table in the same way.
+
+**Post progress (validation complete):**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"patterns-agent","status":"running","message":"Rule validation complete","detail":"Found <E> errors, <W> warnings across all pattern rules"}' || true
+```
 
 ### Phase 3: External Skills
 
@@ -66,6 +104,13 @@ Run any additional GitHub Copilot-discovered skills against the document. Append
 3. **Update the header** placeholders: replace `_TBD_` score and status with actual values
 4. **Append** the Errors summary, Recommendations, and Completion sections
 5. Announce completion
+
+**Post progress (finalized):**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"patterns-agent","status":"complete","message":"Patterns validation complete — score: <SCORE>/100","detail":"<PASS_COUNT> passed, <ERROR_COUNT> errors, <WARN_COUNT> warnings"}' || true
+```
 
 ## Grounding Requirements (CRITICAL)
 

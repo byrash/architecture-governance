@@ -84,7 +84,7 @@ Output expected at: `governance/output/<PAGE_ID>/page.md`
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":1,"agent":"governance-agent","status":"complete","message":"Page verified at governance/output/<PAGE_ID>/page.md"}' || true
+  -d '{"step":1,"agent":"governance-agent","status":"complete","message":"Page verified at governance/output/<PAGE_ID>/page.md","detail":"Ingested markdown and attachments ready for validation"}' || true
 ```
 
 ### Step 2: Ensure Rules Exist
@@ -116,7 +116,7 @@ For each index where `_all.rules.md` is missing AND **no indexed pages exist**: 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Rules indexes verified"}' || true
+  -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Rules indexes verified","detail":"Confirmed _all.rules.md exists in patterns, standards, and security indexes"}' || true
 ```
 
 ### Steps 3-5: Trigger ALL Validation Agents (PARALLEL)
@@ -127,12 +127,32 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 2. Agent: `standards-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 3. Agent: `security-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 
-**Post progress when triggering:**
+**Post progress BEFORE triggering (group start):**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":3,"agent":"governance-agent","status":"start","message":"Triggering patterns, standards, and security agents in parallel"}' || true
+  -d '{"step":3,"agent":"governance-agent","status":"start","message":"Triggering validation agents in parallel","detail":"Launching patterns, standards, and security agents to validate against governance rules"}' || true
+```
+
+**Post progress for EACH sub-agent launch:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.1","agent":"governance-agent","status":"running","message":"Starting patterns-agent","detail":"Validating architecture patterns against indexed rules"}' || true
+```
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.2","agent":"governance-agent","status":"running","message":"Starting standards-agent","detail":"Validating architecture standards against indexed rules"}' || true
+```
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"3.3","agent":"governance-agent","status":"running","message":"Starting security-agent","detail":"Validating security controls against indexed rules"}' || true
 ```
 
 Wait for ALL three to complete before proceeding to Step 6 (merge).
@@ -142,7 +162,7 @@ Wait for ALL three to complete before proceeding to Step 6 (merge).
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":5,"agent":"governance-agent","status":"complete","message":"All 3 validation agents finished"}' || true
+  -d '{"step":5,"agent":"governance-agent","status":"complete","message":"All 3 validation agents finished","detail":"Patterns, standards, and security reports written to governance/output/"}' || true
 ```
 
 ### Step 6: Merge Reports (Incremental)
@@ -160,7 +180,7 @@ Use the `merge-reports` skill. Process reports **one at a time** to avoid loadin
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100"}' || true
+  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns x0.30 + standards x0.30 + security x0.40"}' || true
 ```
 
 ### Step 7: Generate HTML Dashboard (Incremental)
@@ -178,7 +198,7 @@ Use the `markdown-to-html` skill. Build the HTML file in phases -- one source re
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":7,"agent":"governance-agent","status":"complete","message":"HTML dashboard generated"}' || true
+  -d '{"step":7,"agent":"governance-agent","status":"complete","message":"HTML dashboard generated","detail":"Report saved to governance/output/<PAGE_ID>-governance-report.html"}' || true
 ```
 
 ### Step 8: Post Report to Confluence Page and Notify Watcher

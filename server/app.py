@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 import sys
 import traceback
@@ -330,16 +331,54 @@ async def post_report(page_id: str, request: Request):
 
 @app.get("/api/pages/{page_id}/report")
 async def get_report(page_id: str):
-    """Return the governance HTML report for the modal overlay."""
+    """Return the governance HTML report for the modal overlay.
+
+    For standalone HTML reports, extracts body + re-scopes styles under
+    a .report-root wrapper so they don't leak into the parent page.
+    For markdown-only reports, builds inline-styled HTML via the
+    Confluence comment builder (looks identical in the modal).
+    """
     html_report = Path("governance/output") / f"{page_id}-governance-report.html"
     md_report = Path("governance/output") / f"{page_id}-governance-report.md"
 
     if html_report.exists():
-        return HTMLResponse(content=html_report.read_text(encoding="utf-8"))
+        raw = html_report.read_text(encoding="utf-8")
+        scoped = _scope_report_html(raw)
+        return HTMLResponse(content=scoped)
+
     if md_report.exists():
-        return HTMLResponse(content=_md_to_html(md_report))
+        from ingest.confluence_ingest import _parse_md_report, _build_confluence_comment
+        content = md_report.read_text(encoding="utf-8")
+        data = _parse_md_report(content)
+        if not data["page_id"]:
+            data["page_id"] = page_id
+        styled = _build_confluence_comment(data)
+        return HTMLResponse(content=f'<div class="report-root">{styled}</div>')
 
     raise HTTPException(status_code=404, detail="Report not found")
+
+
+def _scope_report_html(raw_html: str) -> str:
+    """Extract body content and re-scope CSS under .report-root for modal use."""
+    body_m = re.search(r"<body[^>]*>(.*)</body>", raw_html, re.DOTALL | re.IGNORECASE)
+    body = body_m.group(1).strip() if body_m else raw_html
+
+    style_m = re.search(r"<style[^>]*>(.*?)</style>", raw_html, re.DOTALL | re.IGNORECASE)
+    if style_m:
+        css = style_m.group(1)
+        scoped_css = re.sub(
+            r"(?m)^(\s*)(body|main)\b",
+            r"\1.report-root",
+            css,
+        )
+        scoped_css = re.sub(
+            r"(?m)^(\s*)(\*)\s*\{",
+            r"\1.report-root \2 {",
+            scoped_css,
+        )
+        return f'<style>{scoped_css}</style><div class="report-root">{body}</div>'
+
+    return f'<div class="report-root">{body}</div>'
 
 
 @app.get("/api/pages/{page_id}/rules")

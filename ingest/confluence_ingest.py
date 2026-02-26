@@ -1478,52 +1478,292 @@ Example:
     return 0
 
 
+def _parse_md_report(content: str) -> Dict[str, Any]:
+    """Extract structured data from the governance-report.md."""
+    data: Dict[str, Any] = {
+        "timestamp": "",
+        "page_id": "",
+        "status": "",
+        "overall_score": 0,
+        "patterns_score": 0,
+        "standards_score": 0,
+        "security_score": 0,
+        "executive_summary": "",
+        "breakdown_rows": [],
+        "critical_issues": [],
+        "quick_wins": [],
+        "recommendations": [],
+    }
+
+    ts = re.search(r"\*\*Generated\*\*:\s*(.+)", content)
+    if ts:
+        data["timestamp"] = ts.group(1).strip()
+    pid = re.search(r"\*\*Page ID\*\*:\s*(\S+)", content)
+    if pid:
+        data["page_id"] = pid.group(1).strip()
+
+    status_m = re.search(r"\*\*Status\*\*\s*\|\s*(.+)", content)
+    if status_m:
+        raw = status_m.group(1).strip().rstrip("|").strip()
+        if "PASS" in raw:
+            data["status"] = "PASS"
+        elif "WARN" in raw:
+            data["status"] = "WARN"
+        else:
+            data["status"] = "FAIL"
+
+    def _extract_score(label: str) -> int:
+        m = re.search(rf"\*\*{label}\*\*\s*\|\s*(\d+)/100", content)
+        if m:
+            return int(m.group(1))
+        m2 = re.search(rf"\|\s*\*\*{label}\*\*\s*\|\s*(\d+)/100", content)
+        return int(m2.group(1)) if m2 else 0
+
+    data["overall_score"] = _extract_score("Overall Score")
+    data["patterns_score"] = _extract_score("Patterns")
+    data["standards_score"] = _extract_score("Standards")
+    data["security_score"] = _extract_score("Security")
+
+    exec_m = re.search(
+        r"## Executive Summary\s*\n(.*?)(?=\n## |\Z)", content, re.DOTALL
+    )
+    if exec_m:
+        data["executive_summary"] = exec_m.group(1).strip()
+
+    breakdown_m = re.search(
+        r"## Score Breakdown\s*\n.*?\n\|[-\s|]+\|\n(.*?)(?=\n## |\Z)",
+        content,
+        re.DOTALL,
+    )
+    if breakdown_m:
+        for line in breakdown_m.group(1).strip().splitlines():
+            cols = [c.strip() for c in line.strip("|").split("|")]
+            if len(cols) >= 7:
+                data["breakdown_rows"].append(cols)
+
+    def _extract_list(heading: str) -> List[str]:
+        m = re.search(
+            rf"## {heading}\s*\n(.*?)(?=\n## |\Z)", content, re.DOTALL
+        )
+        if not m:
+            return []
+        items = []
+        for line in m.group(1).strip().splitlines():
+            line = line.strip()
+            if line.startswith(("-", "*", "•")):
+                items.append(re.sub(r"^[-*•]\s*", "", line))
+            elif line and not line.startswith("|") and not line.startswith("#"):
+                items.append(line)
+        return items
+
+    data["critical_issues"] = _extract_list("Critical Issues")
+    data["quick_wins"] = _extract_list("Quick Wins")
+    data["recommendations"] = _extract_list("Recommendations")
+    return data
+
+
+def _score_color(score: int) -> str:
+    if score >= 70:
+        return "#10b981"
+    if score >= 50:
+        return "#f59e0b"
+    return "#ef4444"
+
+
+def _status_label(status: str) -> Tuple[str, str, str]:
+    """Return (emoji, text, color) for a status."""
+    if status == "PASS":
+        return ("✅", "PASS", "#10b981")
+    if status == "WARN":
+        return ("⚠️", "NEEDS WORK", "#f59e0b")
+    return ("❌", "FAILING", "#ef4444")
+
+
+def _build_confluence_comment(data: Dict[str, Any]) -> str:
+    """Build beautifully styled Confluence comment HTML with inline styles."""
+    score = data["overall_score"]
+    emoji, label, color = _status_label(data["status"])
+
+    s = lambda k: data.get(k, 0)  # noqa: E731
+
+    parts: List[str] = []
+
+    # ── Header banner ─────────────────────────────────────────────
+    parts.append(
+        f'<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 50%,#f093fb 100%);'
+        f'color:white;padding:28px 32px;border-radius:10px;margin-bottom:20px;">'
+        f'<h2 style="margin:0 0 4px;color:white;font-size:1.4em;">🏛️ Architecture Governance Report</h2>'
+        f'<div style="opacity:0.85;font-size:0.9em;">Page {data["page_id"]} · {data["timestamp"]}</div>'
+        f'<div style="display:inline-block;margin-top:12px;padding:6px 18px;border-radius:999px;'
+        f'background:rgba(255,255,255,0.2);font-weight:600;font-size:0.95em;">'
+        f'{emoji} {label} — Overall Score: {score}/100</div>'
+        f'</div>'
+    )
+
+    # ── Score cards row ───────────────────────────────────────────
+    card_style = (
+        "display:inline-block;width:23%;min-width:140px;vertical-align:top;"
+        "background:white;border-radius:10px;padding:18px 12px;text-align:center;"
+        "box-shadow:0 2px 8px rgba(0,0,0,0.06);margin:0 6px 12px;"
+    )
+
+    def score_card(title: str, sc: int, weight: str = "") -> str:
+        c = _score_color(sc)
+        wt = f' <span style="font-weight:400;color:#6b7280;font-size:0.8em;">({weight})</span>' if weight else ""
+        return (
+            f'<div style="{card_style}border-left:4px solid {c};">'
+            f'<div style="font-size:0.8em;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;'
+            f'margin-bottom:6px;">{title}{wt}</div>'
+            f'<div style="font-size:2.2em;font-weight:700;color:{c};line-height:1;">{sc}</div>'
+            f'<div style="font-size:0.75em;color:#9ca3af;">/100</div>'
+            f'<div style="margin-top:8px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;">'
+            f'<div style="width:{sc}%;height:100%;background:{c};border-radius:3px;"></div></div>'
+            f'</div>'
+        )
+
+    parts.append('<div style="text-align:center;margin-bottom:20px;">')
+    parts.append(score_card("Overall", score))
+    parts.append(score_card("Patterns", s("patterns_score"), "30%"))
+    parts.append(score_card("Standards", s("standards_score"), "30%"))
+    parts.append(score_card("Security", s("security_score"), "40%"))
+    parts.append("</div>")
+
+    # ── Executive summary ─────────────────────────────────────────
+    if data["executive_summary"]:
+        parts.append(
+            f'<div style="background:linear-gradient(135deg,#eff6ff 0%,#f0f4ff 100%);'
+            f'border:1px solid rgba(59,130,246,0.15);border-radius:10px;'
+            f'padding:20px 24px;margin-bottom:20px;line-height:1.7;font-size:0.95em;">'
+            f'<strong style="color:#111827;">📝 Executive Summary</strong><br/>'
+            f'{data["executive_summary"]}</div>'
+        )
+
+    # ── Score breakdown table ─────────────────────────────────────
+    if data["breakdown_rows"]:
+        th_style = (
+            "background:#f9fafb;font-weight:600;font-size:0.8em;text-transform:uppercase;"
+            "letter-spacing:0.04em;color:#6b7280;padding:10px 14px;border-bottom:2px solid #e5e7eb;"
+        )
+        td_style = "padding:10px 14px;border-bottom:1px solid #f3f4f6;"
+        parts.append(
+            '<div style="background:white;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
+            'border:1px solid #e5e7eb;padding:20px;margin-bottom:20px;">'
+            '<h3 style="margin:0 0 14px;font-size:1em;">📊 Score Breakdown</h3>'
+            '<table style="width:100%;border-collapse:collapse;">'
+            f'<tr><th style="{th_style}">Category</th><th style="{th_style}">Score</th>'
+            f'<th style="{th_style}">Weight</th><th style="{th_style}">Weighted</th>'
+            f'<th style="{th_style}">Checks</th><th style="{th_style}">Errors</th>'
+            f'<th style="{th_style}">Warnings</th></tr>'
+        )
+        for row in data["breakdown_rows"]:
+            clean = row[0].replace("*", "")
+            is_total = "total" in clean.lower()
+            sc_val = re.search(r"(\d+)", row[1]) if row[1] else None
+            row_sc = int(sc_val.group(1)) if sc_val else 0
+            c = _score_color(row_sc) if not is_total else "#111827"
+            fw = "font-weight:700;" if is_total else ""
+            bg = "background:#f9fafb;" if is_total else ""
+            parts.append(
+                f'<tr style="{bg}">'
+                f'<td style="{td_style}{fw}">{clean}</td>'
+                f'<td style="{td_style}{fw}color:{c};">{row[1].replace("*","")}</td>'
+                f'<td style="{td_style}">{row[2].replace("*","")}</td>'
+                f'<td style="{td_style}{fw}">{row[3].replace("*","")}</td>'
+                f'<td style="{td_style}{fw}">{row[4].replace("*","")}</td>'
+                f'<td style="{td_style}{fw}color:#ef4444;">{row[5].replace("*","")}</td>'
+                f'<td style="{td_style}{fw}color:#f59e0b;">{row[6].replace("*","")}</td>'
+                f"</tr>"
+            )
+        parts.append("</table></div>")
+
+    # ── Callout section builder ───────────────────────────────────
+    def _callout_section(
+        title: str, icon: str, items: List[str], border_color: str, bg_color: str
+    ) -> str:
+        if not items:
+            return ""
+        html = (
+            f'<div style="background:white;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
+            f'border:1px solid #e5e7eb;padding:20px;margin-bottom:20px;">'
+            f'<h3 style="margin:0 0 14px;font-size:1em;">{icon} {title}</h3>'
+        )
+        for item in items:
+            html += (
+                f'<div style="display:flex;gap:12px;padding:12px 16px;border-radius:8px;'
+                f'border-left:4px solid {border_color};background:{bg_color};margin-bottom:8px;'
+                f'line-height:1.5;font-size:0.93em;">'
+                f'<div>{item}</div></div>'
+            )
+        html += "</div>"
+        return html
+
+    parts.append(
+        _callout_section(
+            "Critical Issues", "🚨", data["critical_issues"], "#ef4444", "#fef2f2"
+        )
+    )
+    parts.append(
+        _callout_section(
+            "Quick Wins", "💡", data["quick_wins"], "#10b981", "#ecfdf5"
+        )
+    )
+    parts.append(
+        _callout_section(
+            "Recommendations", "📋", data["recommendations"], "#3b82f6", "#eff6ff"
+        )
+    )
+
+    # ── Footer ────────────────────────────────────────────────────
+    parts.append(
+        f'<div style="text-align:center;padding:16px;color:#9ca3af;font-size:0.8em;'
+        f'border-top:1px solid #e5e7eb;margin-top:8px;">'
+        f'Generated by Architecture Governance · {data["timestamp"]}</div>'
+    )
+
+    return "".join(parts)
+
+
 def post_report_to_confluence(
     page_id: str,
     report_path: Optional[str] = None,
     output_dir: str = "governance/output",
 ) -> Dict[str, Any]:
     """
-    Post the governance report as a comment on the Confluence page.
-
-    Looks for the HTML report first, falls back to markdown report.
-    Returns dict with comment_id and status.
+    Post the governance report as a beautiful styled comment on the
+    Confluence page.  Prefers the markdown report so we can parse
+    structured data and render with inline styles (Confluence strips
+    <style> blocks from comments).  Falls back to raw HTML / plain text.
     """
     confluence = get_confluence_client()
     if confluence is None:
         return {"error": "Confluence client not configured"}
 
     out = Path(output_dir)
+    md_report = out / f"{page_id}-governance-report.md"
+    html_report = out / f"{page_id}-governance-report.html"
+
     if report_path:
         rp = Path(report_path)
+    elif md_report.exists():
+        rp = md_report
+    elif html_report.exists():
+        rp = html_report
     else:
-        html_report = out / f"{page_id}-governance-report.html"
-        md_report = out / f"{page_id}-governance-report.md"
-        if html_report.exists():
-            rp = html_report
-        elif md_report.exists():
-            rp = md_report
-        else:
-            return {"error": f"No governance report found for {page_id}"}
+        return {"error": f"No governance report found for {page_id}"}
 
     content = rp.read_text(encoding="utf-8")
 
     if rp.suffix == ".md":
-        try:
-            import markdown as _md
-            body_html = _md.markdown(content, extensions=["tables", "fenced_code"])
-        except ImportError:
-            body_html = f"<pre>{content}</pre>"
+        data = _parse_md_report(content)
+        if not data["page_id"]:
+            data["page_id"] = page_id
+        comment_body = _build_confluence_comment(data)
     elif rp.suffix == ".html":
-        body_html = content
+        comment_body = (
+            '<h3>Architecture Governance Report</h3><hr/>' + content
+        )
     else:
-        body_html = f"<pre>{content}</pre>"
-
-    comment_body = (
-        '<h3>Architecture Governance Report</h3>'
-        '<hr/>'
-        f'{body_html}'
-    )
+        comment_body = f"<h3>Architecture Governance Report</h3><hr/><pre>{content}</pre>"
 
     try:
         result = confluence.add_comment(page_id, comment_body)
