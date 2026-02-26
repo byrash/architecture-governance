@@ -66,6 +66,10 @@ class WatcherStore:
         with open(self._path, "w") as f:
             json.dump(self._pages, f, indent=2, default=str)
 
+    def save(self) -> None:
+        """Explicit save for shutdown / flush."""
+        self._save()
+
     def _notify(self) -> None:
         """Bump version and wake any SSE listeners."""
         self._version += 1
@@ -131,6 +135,15 @@ class WatcherStore:
             self._notify()
             return True
         return False
+
+    def clear_all(self) -> int:
+        """Remove all pages and progress. Returns count of pages removed."""
+        count = len(self._pages)
+        self._pages.clear()
+        self._progress.clear()
+        self._save()
+        self._notify()
+        return count
 
     def update_page(self, page_id: str, **kwargs: Any) -> None:
         if page_id not in self._pages:

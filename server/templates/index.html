@@ -157,8 +157,14 @@
 </head>
 <body>
 <div class="container">
-  <h1>Architecture Governance &mdash; Page Watcher</h1>
-  <p class="subtitle">Index Confluence pages into governance categories, or ingest and validate with governance agents.</p>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+    <div>
+      <h1>Architecture Governance &mdash; Page Watcher</h1>
+      <p class="subtitle" style="margin-bottom:0">Index Confluence pages into governance categories, or ingest and validate with governance agents.</p>
+    </div>
+    <button onclick="resetAll()" class="btn-sm danger" style="white-space:nowrap;margin-top:4px"
+            title="Remove all watched pages and delete output folders">Reset All</button>
+  </div>
 
   <div class="add-form">
     <input type="text" id="pageId" placeholder="Confluence Page ID" />
@@ -477,6 +483,17 @@ async function submitPage() {
 
 async function removePage(pageId) {
   await fetch(`${API}/${pageId}`, {method: 'DELETE'});
+}
+
+async function resetAll() {
+  if (!confirm('Remove ALL watched pages and delete all output/index folders?\n\nThis cannot be undone.')) return;
+  const res = await fetch(API, {method: 'DELETE'});
+  if (res.ok) {
+    const data = await res.json();
+    alert(`Removed ${data.removed_pages} page(s). Cleaned: ${data.cleaned_folders.join(', ') || 'nothing'}`);
+  } else {
+    alert('Reset failed');
+  }
 }
 
 async function ingestPage(pageId) {

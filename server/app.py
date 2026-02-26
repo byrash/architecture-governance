@@ -8,7 +8,10 @@ governance-agent via webhooks, and displaying reports.
 
 import asyncio
 import json
+import shutil
+import sys
 import traceback
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -17,7 +20,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from server.store import WatcherStore, parse_rules_summary
-from server.watcher import add_trigger_label, poll_loop, remove_trigger_label
+from server.watcher import (
+    add_trigger_label,
+    poll_loop,
+    remove_trigger_label,
+    request_shutdown,
+)
 
 try:
     from dotenv import load_dotenv
@@ -34,20 +42,33 @@ try:
 except ImportError:
     pass
 
-app = FastAPI(title="Architecture Governance — Page Watcher")
 store = WatcherStore()
+_watcher_task: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _watcher_task
+    _watcher_task = asyncio.create_task(poll_loop(store))
+    print("[app] Watcher started", file=sys.stderr)
+    yield
+    # Graceful shutdown
+    print("[app] Shutting down…", file=sys.stderr)
+    request_shutdown()
+    if _watcher_task and not _watcher_task.done():
+        _watcher_task.cancel()
+        try:
+            await asyncio.wait_for(_watcher_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+    store.save()
+    print("[app] Shutdown complete", file=sys.stderr)
+
+
+app = FastAPI(title="Architecture Governance — Page Watcher", lifespan=lifespan)
 
 templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
-
-
-# ──────────────────────────────────────────────────────────────────
-# Startup
-# ──────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(poll_loop(store))
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -88,19 +109,22 @@ async def sse_events(request: Request):
 
     async def event_generator():
         last_version = -1
-        while True:
-            if await request.is_disconnected():
-                break
-            data = json.dumps(store.list_pages(), default=str)
-            yield f"data: {data}\n\n"
-            last_version = store.version
-            try:
-                await asyncio.wait_for(
-                    store.wait_for_change(last_version),
-                    timeout=30.0,
-                )
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                data = json.dumps(store.list_pages(), default=str)
+                yield f"data: {data}\n\n"
+                last_version = store.version
+                try:
+                    await asyncio.wait_for(
+                        store.wait_for_change(last_version),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            return
 
     return StreamingResponse(
         event_generator(),
@@ -147,6 +171,33 @@ async def remove_page(page_id: str):
     raise HTTPException(status_code=404, detail="Page not found")
 
 
+@app.delete("/api/pages")
+async def reset_all():
+    """Remove all watched pages, clear output/index folders and state file."""
+    count = store.clear_all()
+
+    cleaned: list[str] = []
+    for folder in ("governance/output", "governance/indexes"):
+        p = Path(folder)
+        if p.exists():
+            shutil.rmtree(p)
+            cleaned.append(folder)
+
+    state_file = Path("governance/watcher_state.json")
+    if state_file.exists():
+        state_file.unlink()
+        cleaned.append(str(state_file))
+
+    print(
+        f"[app] Reset: removed {count} page(s), cleaned {cleaned}",
+        file=sys.stderr,
+    )
+    return JSONResponse(content={
+        "removed_pages": count,
+        "cleaned_folders": cleaned,
+    })
+
+
 @app.post("/api/pages/{page_id}/ingest")
 async def trigger_ingest(page_id: str):
     """Ingest a page. In index mode, also indexes + extracts rules."""
@@ -163,6 +214,7 @@ async def trigger_ingest(page_id: str):
 
     try:
         result = await loop.run_in_executor(None, _run_ingest_sync, page_id, info)
+        ver = result.get("page_version")
         store.update_page(
             page_id,
             status="ingested",
@@ -175,6 +227,8 @@ async def trigger_ingest(page_id: str):
             report_scores=None,
             stale_validation=False,
             change_detected=False,
+            ingested_version=ver,
+            last_version=ver,
             error=None,
         )
         return JSONResponse(content=result)
@@ -321,6 +375,8 @@ def _run_ingest_sync(page_id: str, info: dict) -> dict:
     title = result.get("metadata", {}).get("title", page_id)
     output_path = f"governance/output/{page_id}/"
 
+    page_version = result.get("metadata", {}).get("version")
+
     response = {
         "status": "ingested",
         "page_id": page_id,
@@ -329,6 +385,7 @@ def _run_ingest_sync(page_id: str, info: dict) -> dict:
         "index_path": None,
         "rules_count": 0,
         "rules_summary": None,
+        "page_version": page_version,
     }
 
     if index:
