@@ -7,6 +7,8 @@ tracked as change_detected so the UI can prompt the user to add the
 label when ready.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import sys
@@ -149,12 +151,13 @@ def _run_ingest(page_id: str, store: WatcherStore) -> None:
 # Poll loop
 # ──────────────────────────────────────────────────────────────────
 
-_shutdown = asyncio.Event()
+_shutting_down = False
 
 
 def request_shutdown() -> None:
     """Signal the poll loop to stop gracefully."""
-    _shutdown.set()
+    global _shutting_down
+    _shutting_down = True
 
 
 async def poll_loop(store: WatcherStore) -> None:
@@ -164,6 +167,9 @@ async def poll_loop(store: WatcherStore) -> None:
     page.  Version changes without the label set change_detected=True so
     the UI can show a prompt.
     """
+    global _shutting_down
+    _shutting_down = False
+
     print(
         f"[watcher] Starting poll loop (interval={POLL_INTERVAL}s, "
         f"trigger_label={TRIGGER_LABEL})",
@@ -171,19 +177,20 @@ async def poll_loop(store: WatcherStore) -> None:
     )
 
     try:
-        while not _shutdown.is_set():
+        while not _shutting_down:
             try:
                 confluence = _get_confluence_client()
                 if confluence is None:
-                    try:
-                        await asyncio.wait_for(_shutdown.wait(), timeout=POLL_INTERVAL)
-                    except asyncio.TimeoutError:
-                        pass
+                    await asyncio.sleep(POLL_INTERVAL)
                     continue
 
                 pages = store.list_pages()
+                if not pages:
+                    await asyncio.sleep(POLL_INTERVAL)
+                    continue
+
                 for page_id, info in pages.items():
-                    if _shutdown.is_set():
+                    if _shutting_down:
                         break
 
                     status = info.get("status")
@@ -197,13 +204,20 @@ async def poll_loop(store: WatcherStore) -> None:
                         version = page.get("version", {}).get("number")
                         title = page.get("title", "")
                         has_label = _has_trigger_label(page)
+                        ingested_ver = info.get("ingested_version")
+
+                        print(
+                            f"[watcher] Poll {page_id}: status={status} "
+                            f"v={version} label={has_label} "
+                            f"ingested_v={ingested_ver}",
+                            file=sys.stderr,
+                        )
 
                         if title and info.get("title") != title:
                             store.update_page(page_id, title=title)
 
                         stored_version = info.get("last_version")
 
-                        # Always store baseline version on first poll
                         if stored_version is None:
                             store.update_page(page_id, last_version=version)
                             stored_version = version
@@ -214,14 +228,14 @@ async def poll_loop(store: WatcherStore) -> None:
                             store.update_page(page_id, last_version=version)
 
                         already_ingested = (
-                            info.get("ingested_version") is not None
-                            and info.get("ingested_version") == version
+                            ingested_ver is not None
+                            and ingested_ver == version
                         )
 
                         if has_label and not already_ingested:
                             print(
                                 f"[watcher] Trigger label found on {page_id} "
-                                f"(v{stored_version} -> v{version})",
+                                f"(v{stored_version} -> v{version}), ingesting…",
                                 file=sys.stderr,
                             )
 
@@ -237,13 +251,19 @@ async def poll_loop(store: WatcherStore) -> None:
                                     None, _remove_label, confluence, page_id,
                                 )
 
-                        elif version_changed and not info.get("change_detected"):
-                            print(
-                                f"[watcher] Change detected (no label): {page_id} "
-                                f"v{stored_version} -> v{version}",
-                                file=sys.stderr,
-                            )
-                            store.update_page(page_id, change_detected=True)
+                        elif not has_label:
+                            # Label removed — reset ingested_version so
+                            # re-adding the label triggers a fresh ingestion
+                            if ingested_ver is not None:
+                                store.update_page(page_id, ingested_version=None)
+
+                            if version_changed and not info.get("change_detected"):
+                                print(
+                                    f"[watcher] Change detected (no label): {page_id} "
+                                    f"v{stored_version} -> v{version}",
+                                    file=sys.stderr,
+                                )
+                                store.update_page(page_id, change_detected=True)
 
                     except Exception as exc:
                         store.update_page(page_id, status="error", error=str(exc))
@@ -252,11 +272,7 @@ async def poll_loop(store: WatcherStore) -> None:
             except Exception as exc:
                 print(f"[watcher] Poll loop error: {exc}", file=sys.stderr)
 
-            # Sleep but wake immediately on shutdown signal
-            try:
-                await asyncio.wait_for(_shutdown.wait(), timeout=POLL_INTERVAL)
-            except asyncio.TimeoutError:
-                pass
+            await asyncio.sleep(POLL_INTERVAL)
 
     except asyncio.CancelledError:
         pass

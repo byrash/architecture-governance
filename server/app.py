@@ -49,22 +49,24 @@ _watcher_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     global _watcher_task
     _watcher_task = asyncio.create_task(poll_loop(store))
     print("[app] Watcher started", file=sys.stderr)
-    yield
-    # Graceful shutdown
-    print("[app] Shutting down…", file=sys.stderr)
-    request_shutdown()
-    if _watcher_task and not _watcher_task.done():
-        _watcher_task.cancel()
-        try:
-            await asyncio.wait_for(_watcher_task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            pass
-    store.save()
-    print("[app] Shutdown complete", file=sys.stderr)
+    try:
+        yield
+    finally:
+        print("[app] Shutting down…", file=sys.stderr)
+        request_shutdown()
+        if _watcher_task and not _watcher_task.done():
+            _watcher_task.cancel()
+            try:
+                await asyncio.wait_for(_watcher_task, timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+        _watcher_task = None
+        store.save()
+        print("[app] Shutdown complete", file=sys.stderr)
 
 
 app = FastAPI(title="Architecture Governance — Page Watcher", lifespan=lifespan)
@@ -179,11 +181,10 @@ async def reset_all():
     count = store.clear_all()
 
     cleaned: list[str] = []
-    for folder in ("governance/output", "governance/indexes"):
-        p = Path(folder)
-        if p.exists():
-            shutil.rmtree(p)
-            cleaned.append(folder)
+    p = Path("governance/output")
+    if p.exists():
+        shutil.rmtree(p)
+        cleaned.append("governance/output")
 
     state_file = Path("governance/watcher_state.json")
     if state_file.exists():
