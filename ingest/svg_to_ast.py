@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ingest.diagram_ast import (
-    DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
+    DiagramAST, DiagramNode, DiagramEdge,
     save_ast, enrich_ast,
 )
 
@@ -229,8 +229,6 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
         root = ET.fromstring(svg_content)
     except ET.ParseError:
         return None
-
-    ns = _get_namespaces(root)
 
     raw_shapes: List[dict] = []
     texts_with_pos: List[dict] = []

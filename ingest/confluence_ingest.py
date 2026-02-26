@@ -19,7 +19,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Auto-load .env file if present
 try:
@@ -341,7 +341,7 @@ def convert_drawio_to_ast_file(drawio_path: Path, ast_output: str) -> bool:
     except subprocess.CalledProcessError as e:
         print(f"  Error: drawio conversion failed: {e.stderr}", file=sys.stderr)
     except subprocess.TimeoutExpired:
-        print(f"  Error: drawio conversion timed out", file=sys.stderr)
+        print("  Error: drawio conversion timed out", file=sys.stderr)
     except Exception as e:
         print(f"  Error: {e}", file=sys.stderr)
     return False
@@ -434,8 +434,6 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
         
         for attachment in results:
             filename = attachment.get('title', 'unknown')
-            lower_filename = filename.lower()
-            
             # Skip backup and temp files
             if filename.startswith('drawio-backup-') or filename.startswith('tmp') or filename.startswith('~'):
                 skipped_files['backup'] += 1
@@ -1005,7 +1003,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                 print(f"   ⚠ Could not remove {report_name}: {e}", file=sys.stderr)
     
     if cleaned_items:
-        print(f"🧹 Cleaned existing output:", file=sys.stderr)
+        print("🧹 Cleaned existing output:", file=sys.stderr)
         for item in cleaned_items:
             print(f"   ✓ {item}", file=sys.stderr)
     
@@ -1064,8 +1062,6 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         storage_content, code_blocks = extract_code_macros(storage_content)
         storage_content, noformat_blocks = extract_noformat_macros(storage_content)
         storage_content, excerpt_names = extract_excerpt_macros(storage_content)
-
-    any_extracted = md_blocks or mermaid_macro_blocks or code_blocks or noformat_blocks or excerpt_names
 
     # Debug: Check for images, SVGs and drawio elements
     print("\n--- DEBUG: Checking page content ---", file=sys.stderr)
@@ -1170,7 +1166,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     # --- Conversion cascade: Draw.io → SVG → PlantUML → AST tables ---
     from ingest.diagram_ast import load_ast, ast_to_markdown_tables
     from ingest.diagram_ast import save_ast as _save_ast
-    from ingest.plantuml_to_ast import convert_plantuml_to_ast, extract_plantuml_blocks
+    from ingest.plantuml_to_ast import convert_plantuml_to_ast
 
     diagram_table_map: Dict[str, str] = {}
     conversion_manifest = []
@@ -1184,7 +1180,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         all_drawio_files = list(set(all_drawio_files + drawio_files))
 
         if all_drawio_files:
-            print(f"\n  DRAW.IO -> AST (XML parsing, deterministic)", file=sys.stderr)
+            print("\n  DRAW.IO -> AST (XML parsing, deterministic)", file=sys.stderr)
             print(f"   Found {len(all_drawio_files)} Draw.io file(s)", file=sys.stderr)
 
             for drawio_file in all_drawio_files:
@@ -1251,7 +1247,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         svg_to_convert = [f for f in svg_files if f not in already_converted]
 
         if svg_to_convert:
-            print(f"\n  SVG -> AST (XML parsing, deterministic)", file=sys.stderr)
+            print("\n  SVG -> AST (XML parsing, deterministic)", file=sys.stderr)
             print(f"   Found {len(svg_to_convert)} SVG file(s) to convert", file=sys.stderr)
 
             for svg_file in svg_to_convert:
@@ -1400,7 +1396,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     if excerpt_names:
         print(f"   Excerpt boundaries marked: {excerpt_names}", file=sys.stderr)
 
-    print(f"\n   All diagrams converted deterministically - zero LLM", file=sys.stderr)
+    print("\n   All diagrams converted deterministically - zero LLM", file=sys.stderr)
 
     index_path = None
     rules_result = None

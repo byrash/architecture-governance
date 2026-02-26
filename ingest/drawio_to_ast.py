@@ -23,7 +23,7 @@ import html
 import urllib.parse
 from pathlib import Path
 from xml.etree import ElementTree as ET
-from typing import List, Dict, Tuple, Optional, Set
+from typing import List, Dict, Tuple, Optional
 
 from ingest.diagram_ast import (
     DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
@@ -327,7 +327,7 @@ def convert_drawio_to_ast(input_path: Path, page_index: int = 0) -> DiagramAST:
 
     pages = extract_diagram_pages(content)
     if not pages:
-        print(f"  Warning: No diagram pages found in file", file=sys.stderr)
+        print("  Warning: No diagram pages found in file", file=sys.stderr)
         return DiagramAST(metadata={'source_format': 'drawio', 'error': 'no_pages'})
 
     if page_index >= len(pages):
@@ -337,7 +337,7 @@ def convert_drawio_to_ast(input_path: Path, page_index: int = 0) -> DiagramAST:
     xml_content = pages[page_index]
     root = parse_diagram_xml(xml_content)
     if root is None:
-        print(f"  Warning: Could not parse XML structure", file=sys.stderr)
+        print("  Warning: Could not parse XML structure", file=sys.stderr)
         return DiagramAST(metadata={'source_format': 'drawio', 'error': 'xml_parse_failed'})
 
     ast = extract_graph_elements(root)

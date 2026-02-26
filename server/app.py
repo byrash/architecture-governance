@@ -7,7 +7,6 @@ Chat commands for governance validation.
 """
 
 import asyncio
-import os
 import traceback
 from datetime import datetime
 from pathlib import Path

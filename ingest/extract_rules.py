@@ -11,6 +11,7 @@ Zero LLM — all rules are inferred from structural diagram properties.
 import hashlib
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -176,7 +177,6 @@ def _derive_connectivity_rules(edges: List[DiagramEdge], nodes: List[DiagramNode
     if not edges:
         return rules
 
-    node_map = {n.id: n for n in nodes}
     datastore_ids = {n.id for n in nodes if n.role == "datastore"}
     gateway_ids = {n.id for n in nodes if n.role == "gateway"}
     external_ids = {n.id for n in nodes if n.role == "external"}
@@ -461,8 +461,6 @@ def extract_and_write_rules(
 
     Returns dict with rules count and paths.
     """
-    import sys
-
     output_page = Path(output_dir) / page_id
     index_page = Path(indexes_dir) / index / page_id
 
@@ -507,8 +505,6 @@ def batch_extract(
 
     Returns dict with per-page results and totals.
     """
-    import sys
-
     idx = Path(index_dir)
     if not idx.is_dir():
         print(f"Error: {index_dir} is not a directory", file=sys.stderr)
