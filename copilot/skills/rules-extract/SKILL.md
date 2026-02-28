@@ -205,16 +205,19 @@ python3 -c "import hashlib; print(hashlib.md5(open('<source-path>','rb').read(65
 
 ## Merging (CLI — after LLM extraction)
 
-After writing `rules-llm.md` for all pages, run the merge to combine deterministic + LLM rules:
+**IMPORTANT**: The merge command already exists and MUST be run after LLM extraction. Do NOT merge manually — use this exact command:
 
 ```bash
-python -m ingest.extract_rules --merge-llm --folder governance/indexes/<category>/
+source .venv/bin/activate && python -m ingest.extract_rules --merge-llm --folder governance/indexes/<category>/
 ```
+
+You can verify it exists: `python -m ingest.extract_rules --help` shows `--merge-llm`.
 
 This does:
 1. For each page: reads `rules.md` (deterministic) + `rules-llm.md` (LLM) → merged `rules.md`
 2. Deduplicates: if a `R-VET-*` rule covers the same condition as an existing `R-PROTO-*` etc., keeps both (the vet enhances, doesn't replace)
 3. Rebuilds `_all.rules.md` from all merged per-page `rules.md` files
+4. Outputs JSON with per-page merge stats (ast count, llm count, merged count)
 
 ## Important
 

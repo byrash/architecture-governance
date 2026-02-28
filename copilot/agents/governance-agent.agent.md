@@ -146,13 +146,18 @@ curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
 
 ### Step I-3: Merge Deterministic + LLM Rules
 
-After all pages are extracted, run the merge CLI:
+After all pages are extracted, **run this exact command** using the execute tool. The merge CLI already exists — do NOT attempt to merge manually or skip this step:
 
 ```bash
 source .venv/bin/activate && python -m ingest.extract_rules --merge-llm --folder governance/indexes/<CATEGORY>/
 ```
 
-This rebuilds each page's `rules.md` (merged) and the consolidated `_all.rules.md`.
+This command:
+1. For each page: reads `rules.md` (deterministic) + `rules-llm.md` (LLM) → writes merged `rules.md`
+2. Deduplicates: AST rules kept at highest priority, R-VET-* enhance (not replace), R-TEXT-* added if unique
+3. Rebuilds `_all.rules.md` from all merged per-page `rules.md` files
+
+The output is JSON with per-page merge stats and totals.
 
 **Post progress:**
 
