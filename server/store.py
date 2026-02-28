@@ -193,7 +193,8 @@ class WatcherStore:
             return
         entry["timestamp"] = datetime.now().isoformat()
         self._index_progress.setdefault(category, []).append(entry)
-        self._index_status[category] = "preparing"
+        if self._index_status.get(category) != "prepared":
+            self._index_status[category] = "preparing"
         self._notify()
 
     def get_index_progress(self, category: str) -> List[Dict[str, Any]]:

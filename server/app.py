@@ -449,17 +449,49 @@ async def get_index_rules(category: str):
 
 @app.post("/api/indexes/{category}/progress")
 async def post_index_progress(category: str, request: Request):
-    """Accept index-preparation progress from the governance-agent."""
+    """Accept index-preparation progress from the governance-agent.
+
+    When Step I-4 completes or a 'done' step arrives, auto-refresh page
+    rules from disk so the UI shows updated counts even if /prepared
+    is never explicitly called.
+    """
     if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
     body = await request.json()
     store.append_index_progress(category, body)
+
+    step = str(body.get("step", ""))
+    status = str(body.get("status", ""))
+    message = str(body.get("message", "")).lower()
+    is_terminal = (
+        step == "done"
+        or (step.startswith("I-4") and status == "complete")
+        or ("enrichment" in message and "complete" in message)
+        or ("index preparation" in message and "complete" in message)
+    )
+
+    if is_terminal:
+        store.set_index_status(category, "prepared")
+        now = datetime.now().isoformat()
+        for pid, info in store.list_pages().items():
+            if info.get("mode") == "index" and info.get("index") == category:
+                updates: dict = {"llm_rules_at": now, "enriched_at": now}
+                rules_md = Path("governance/indexes") / category / pid / "rules.md"
+                if rules_md.exists():
+                    rs = parse_rules_summary(rules_md)
+                    updates["rules_count"] = rs["total"]
+                    updates["rules_summary"] = rs
+                store.update_page(pid, **updates)
+
     return JSONResponse(content={"ok": True})
 
 
 @app.post("/api/indexes/{category}/prepared")
 async def index_prepared(category: str, request: Request):
-    """Mark an index as fully prepared (LLM extraction + merge + enrichment done)."""
+    """Mark an index as fully prepared (LLM extraction + merge + enrichment done).
+
+    Also refreshes each page's rules_summary from the merged rules.md on disk.
+    """
     if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
     body = await request.json()
@@ -475,7 +507,13 @@ async def index_prepared(category: str, request: Request):
     enriched_at = datetime.now().isoformat()
     for pid, info in store.list_pages().items():
         if info.get("mode") == "index" and info.get("index") == category:
-            store.update_page(pid, llm_rules_at=enriched_at, enriched_at=enriched_at)
+            updates: dict = {"llm_rules_at": enriched_at, "enriched_at": enriched_at}
+            rules_md = Path("governance/indexes") / category / pid / "rules.md"
+            if rules_md.exists():
+                rs = parse_rules_summary(rules_md)
+                updates["rules_count"] = rs["total"]
+                updates["rules_summary"] = rs
+            store.update_page(pid, **updates)
 
     return JSONResponse(content={"ok": True})
 
