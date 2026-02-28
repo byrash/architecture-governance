@@ -1,6 +1,6 @@
 # Architecture Governance Makefile
 
-.PHONY: help serve stop ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules extract-rules-all
+.PHONY: help serve stop ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules extract-rules-all enrich-rules extract-claims score test test-parsers test-scoring test-integration
 
 .DEFAULT_GOAL := help
 
@@ -32,6 +32,17 @@ help:
 	@echo "  make check-rules FOLDER=governance/indexes/security/     Check page.md vs rules.md staleness"
 	@echo "  make check-rules-all                                     Check all index folders"
 	@echo "  make refresh-rules FOLDER=governance/indexes/security/   Re-extract only stale/missing rules"
+	@echo ""
+	@echo "Scoring Pipeline:"
+	@echo "  make enrich-rules INDEX=security                         Check enrichment staleness"
+	@echo "  make extract-claims PAGE_ID=123456789                    Check claims staleness + extract AST facts"
+	@echo "  make score PAGE_ID=123456789                             Run deterministic scoring engine"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make test                                                Run all tests"
+	@echo "  make test-parsers                                        Run parser unit tests only"
+	@echo "  make test-scoring                                        Run scoring unit tests only"
+	@echo "  make test-integration                                    Run integration test"
 	@echo ""
 	@echo "Validation runs via GitHub Copilot agents in VS Code Chat."
 
@@ -181,6 +192,45 @@ ifndef FOLDER
 	@exit 1
 endif
 	@python3 -m ingest.extract_rules --folder $(FOLDER) --refresh
+
+enrich-rules:
+ifndef INDEX
+	@echo "Error: INDEX required."
+	@echo "Usage: make enrich-rules INDEX=security"
+	@exit 1
+endif
+	@python3 -m ingest.enrich_rules --check --index $(INDEX)
+
+extract-claims:
+ifndef PAGE_ID
+	@echo "Error: PAGE_ID required."
+	@echo "Usage: make extract-claims PAGE_ID=123456789"
+	@exit 1
+endif
+	@python3 -m ingest.extract_claims --check --page-id $(PAGE_ID)
+	@echo ""
+	@echo "AST Facts:"
+	@python3 -m ingest.extract_claims --facts --page-id $(PAGE_ID)
+
+score:
+ifndef PAGE_ID
+	@echo "Error: PAGE_ID required."
+	@echo "Usage: make score PAGE_ID=123456789"
+	@exit 1
+endif
+	@python3 -m ingest.score_rules --page-id $(PAGE_ID) --all
+
+test:
+	@python3 -m pytest tests/ -v
+
+test-parsers:
+	@python3 -m pytest tests/test_diagram_ast.py tests/test_drawio_to_ast.py tests/test_svg_to_ast.py tests/test_plantuml_to_ast.py -v
+
+test-scoring:
+	@python3 -m pytest tests/test_score_rules.py tests/test_extract_rules.py -v
+
+test-integration:
+	@python3 -m pytest tests/test_integration.py -v
 
 list-skills:
 	@echo "Skills:"

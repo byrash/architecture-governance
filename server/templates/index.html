@@ -785,6 +785,13 @@
         } else if (p.rules_count > 0) {
           html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none;cursor:pointer"><span class="label">Rules: ${p.rules_count}</span></a></div>`;
         }
+        if (p.enriched_at) {
+          html += `<div style="margin-top:6px"><span class="label" style="color:var(--green)">Rules enriched ${new Date(p.enriched_at).toLocaleDateString()}</span></div>`;
+        } else if (p.rules_summary && p.rules_summary.total > 0) {
+          const enrichCmd = `@governance-agent Enrich rules for ${p.index} index`;
+          html += `<div style="margin-top:8px"><span class="label">Enrich rules in VS Code Chat:</span><br>`;
+          html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${enrichCmd}</span></div>`;
+        }
         return html;
       }
 
@@ -821,6 +828,9 @@
           html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence since validation — add <code>governance-ready</code> label or click Mark Ready to re-validate</div>`;
         }
         html += renderScoreCard(p.report_scores);
+        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
+        html += `<div style="margin-top:8px"><span class="label">Re-validate in VS Code Chat:</span><br>`;
+        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
         html += renderProgressLog(p.progress_log, false);
         return html;
       }

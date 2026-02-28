@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from ingest.diagram_ast import (
     DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
-    save_ast, enrich_ast,
+    save_ast, enrich_ast, make_readable_id,
 )
 
 
@@ -195,16 +195,40 @@ def _parse_component_data(content: str) -> Tuple[Dict[str, PumlNode], List[PumlE
     groups: Dict[str, PumlGroup] = {}
     current_group: Optional[str] = None
     group_stack: List[Optional[str]] = []
+    _used_ids: set = set()
 
     def safe_id(name: str) -> str:
-        sid = re.sub(r'[^a-zA-Z0-9_]', '_', name).strip('_')[:25]
-        if not sid or sid[0].isdigit():
-            sid = f'n_{sid}'
-        return sid
+        return make_readable_id(name, _used_ids)
+
+    in_box: Optional[str] = None
 
     for line in content.split('\n'):
         line = line.strip()
         if not line or line.startswith("'") or line.startswith('@'):
+            continue
+
+        bm = re.match(r'box\s+"([^"]+)"', line, re.IGNORECASE)
+        if bm:
+            label = bm.group(1).strip()
+            gid = safe_id(label)
+            groups[gid] = PumlGroup(id=gid, label=label)
+            group_stack.append(current_group)
+            current_group = gid
+            in_box = gid
+            continue
+
+        if re.match(r'end\s*box', line, re.IGNORECASE):
+            if in_box and group_stack:
+                current_group = group_stack.pop()
+                in_box = None
+            continue
+
+        tm = re.match(r'together\s*\{', line, re.IGNORECASE)
+        if tm:
+            gid = safe_id('together_group')
+            groups[gid] = PumlGroup(id=gid, label='together')
+            group_stack.append(current_group)
+            current_group = gid
             continue
 
         m = re.match(r'(package|node|folder|cloud|rectangle|frame)\s+"?([^"{]*)"?\s*(?:as\s+(\w+))?\s*(?:#(\w+))?\s*\{', line, re.IGNORECASE)
@@ -427,6 +451,7 @@ def _component_data_to_ast(nodes: Dict[str, PumlNode], edges: List[PumlEdge],
         DiagramNode(
             id=n.id, label=n.label, shape=n.shape,
             fill_color=n.color, parent_group=n.parent_group,
+            confidence=0.85,
         )
         for n in nodes.values()
     ]
@@ -435,11 +460,13 @@ def _component_data_to_ast(nodes: Dict[str, PumlNode], edges: List[PumlEdge],
             id=f"edge_{i+1}", source=e.src, target=e.dst,
             label=e.label, style=e.line_style,
             arrow_start=e.arrow_start, arrow_end=e.arrow_end,
+            confidence=0.85,
         )
         for i, e in enumerate(edges)
     ]
     ast_groups = [
-        DiagramGroup(id=g.id, label=g.label, children=list(g.children))
+        DiagramGroup(id=g.id, label=g.label, children=list(g.children),
+                     confidence=0.85)
         for g in groups.values()
     ]
     return DiagramAST(
@@ -454,6 +481,7 @@ def _class_data_to_ast(classes: Dict[str, PumlClass],
     ast_nodes = [
         DiagramNode(
             id=c.name, label=c.name, shape='rectangle',
+            confidence=0.85,
             metadata={
                 'stereotype': c.stereotype,
                 'members': list(c.members),
@@ -465,7 +493,7 @@ def _class_data_to_ast(classes: Dict[str, PumlClass],
     ast_edges = [
         DiagramEdge(
             id=f"rel_{i+1}", source=r.src, target=r.dst,
-            label=r.label,
+            label=r.label, confidence=0.85,
             metadata={'rel_type': r.rel_type},
         )
         for i, r in enumerate(relations)
@@ -487,6 +515,7 @@ def _sequence_data_to_ast(participants: Dict[str, str],
         seen.add(alias)
         ast_nodes.append(DiagramNode(
             id=alias, label=label, shape='rectangle',
+            confidence=0.85,
             metadata={'role': 'participant'},
         ))
     ast_edges = [
@@ -495,7 +524,7 @@ def _sequence_data_to_ast(participants: Dict[str, str],
             label=msg.get('label', ''), style=msg.get('style', 'solid'),
             arrow_start=msg.get('arrow_start', False),
             arrow_end=msg.get('arrow_end', True),
-            sequence_order=i + 1,
+            sequence_order=i + 1, confidence=0.85,
         )
         for i, msg in enumerate(messages)
     ]
@@ -509,13 +538,13 @@ def _sequence_data_to_ast(participants: Dict[str, str],
 def _state_data_to_ast(states: Dict[str, str],
                        transitions: List[dict]) -> DiagramAST:
     ast_nodes = [
-        DiagramNode(id=sid, label=label, shape='rectangle')
+        DiagramNode(id=sid, label=label, shape='rectangle', confidence=0.85)
         for sid, label in states.items()
     ]
     ast_edges = [
         DiagramEdge(
             id=f"trans_{i+1}", source=t['src'], target=t['dst'],
-            label=t.get('label', ''),
+            label=t.get('label', ''), confidence=0.85,
         )
         for i, t in enumerate(transitions)
     ]

@@ -29,6 +29,8 @@ This agent uses the following skills (discovered automatically by GitHub Copilot
 - **merge-reports** -- merge validation reports into final governance report
 - **markdown-to-html** -- convert final report to HTML dashboard
 - **verbose-logging** -- step progress announcement templates
+- **enrich-rules** -- LLM-powered rule enrichment (generates rules-enriched.json)
+- **extract-claims** -- LLM-powered page claims extraction (generates page-claims.json)
 
 ## How to Trigger Other Agents
 
@@ -119,9 +121,57 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Rules indexes verified","detail":"Confirmed _all.rules.md exists in patterns, standards, and security indexes"}' || true
 ```
 
+### Step 2b: Enrich Rules (if stale)
+
+Check if rule enrichment is current for each index that has rules:
+
+```bash
+source .venv/bin/activate && python -m ingest.enrich_rules --check --index security
+python -m ingest.enrich_rules --check --index patterns
+python -m ingest.enrich_rules --check --index standards
+```
+
+If any index reports `"stale": true`, use the **enrich-rules** skill to generate `rules-enriched.json` for that index. Read the skill at `copilot/skills/enrich-rules/SKILL.md` for instructions.
+
+If enrichment is current (not stale), skip this step.
+
+### Step 2c: Extract Page Claims (if stale)
+
+Check if page claims are current:
+
+```bash
+source .venv/bin/activate && python -m ingest.extract_claims --check --page-id <PAGE_ID>
+```
+
+If stale, use the **extract-claims** skill to generate `page-claims.json`. Read the skill at `copilot/skills/extract-claims/SKILL.md` for instructions. First get deterministic AST facts:
+
+```bash
+python -m ingest.extract_claims --facts --page-id <PAGE_ID>
+```
+
+Then generate claims using LLM and write to `governance/output/<PAGE_ID>/page-claims.json`.
+
+### Step 2d: Run Deterministic Scorer
+
+Run the pure Python scoring engine to produce `pre-score.json`:
+
+```bash
+source .venv/bin/activate && python -m ingest.score_rules --page-id <PAGE_ID> --all
+```
+
+This produces `governance/output/<PAGE_ID>/pre-score.json` with per-rule status (locked/unlocked).
+
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"2d","agent":"governance-agent","status":"complete","message":"Deterministic scoring complete","detail":"pre-score.json produced with locked/unlocked rule statuses"}' || true
+```
+
 ### Steps 3-5: Trigger ALL Validation Agents (PARALLEL)
 
-**Use the agent tool THREE times in rapid succession** -- do NOT wait between them. These agents are independent and can run simultaneously:
+**Use the agent tool THREE times in rapid succession** -- do NOT wait between them. These agents are independent and can run simultaneously. They will use `pre-score.json` to skip locked rules:
 
 1. Agent: `patterns-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`
 2. Agent: `standards-agent` | Prompt: `Validate governance/output/<PAGE_ID>/page.md`

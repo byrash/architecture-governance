@@ -27,7 +27,7 @@ from typing import List, Dict, Tuple, Optional
 
 from ingest.diagram_ast import (
     DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
-    detect_direction, save_ast, enrich_ast,
+    detect_direction, save_ast, enrich_ast, make_readable_id,
 )
 
 
@@ -216,10 +216,14 @@ def parse_diagram_xml(xml_content: str) -> Optional[ET.Element]:
 # ──────────────────────────────────────────────────────────────────
 
 def extract_graph_elements(root: ET.Element) -> DiagramAST:
-    """Extract nodes, edges, and groups from parsed XML into a DiagramAST."""
-    nodes: List[DiagramNode] = []
-    edges: List[DiagramEdge] = []
-    groups: Dict[str, DiagramGroup] = {}
+    """Extract nodes, edges, and groups from parsed XML into a DiagramAST.
+
+    Assigns human-readable IDs derived from labels while preserving original
+    mxCell IDs in metadata for traceability.
+    """
+    raw_nodes: List[Dict] = []
+    raw_edges: List[Dict] = []
+    raw_groups: Dict[str, Dict] = {}
 
     cell_parents: Dict[str, str] = {}
     parent_children: Dict[str, List[str]] = {}
@@ -267,42 +271,99 @@ def extract_graph_elements(root: ET.Element) -> DiagramAST:
             edge_style = detect_edge_style(style)
             arrow_at_end = has_arrow(style, 'end')
             arrow_at_start = has_arrow(style, 'start')
-            edges.append(DiagramEdge(
-                id=f"edge_{edge_counter}",
-                source=source or '',
-                target=target or '',
-                label=label,
-                style=edge_style,
-                arrow_start=arrow_at_start,
-                arrow_end=arrow_at_end,
-            ))
+            raw_edges.append({
+                'id': f"edge_{edge_counter}",
+                'source_raw': source or '',
+                'target_raw': target or '',
+                'label': label,
+                'style': edge_style,
+                'arrow_start': arrow_at_start,
+                'arrow_end': arrow_at_end,
+            })
         elif shape == 'group' or cell_id in parent_children:
             if label or cell_id in parent_children:
-                groups[cell_id] = DiagramGroup(
-                    id=cell_id,
-                    label=label or f"Group_{cell_id[-4:]}",
-                    children=parent_children.get(cell_id, []),
-                )
+                raw_groups[cell_id] = {
+                    'original_id': cell_id,
+                    'label': label or f"Group_{cell_id[-4:]}",
+                    'raw_children': list(parent_children.get(cell_id, [])),
+                }
         elif vertex == '1' or (label and edge_attr != '1'):
             if shape == 'group':
-                groups[cell_id] = DiagramGroup(id=cell_id, label=label, children=[])
+                raw_groups[cell_id] = {
+                    'original_id': cell_id,
+                    'label': label,
+                    'raw_children': [],
+                }
                 continue
 
             fill_color, stroke_color, font_color = extract_colors(style)
-            nodes.append(DiagramNode(
-                id=cell_id,
-                label=label if label else f"Node_{cell_id[-4:]}",
-                shape=shape,
-                x=x, y=y, width=w, height=h,
-                parent_group=parent_id if parent_id not in ('0', '1') else None,
-                fill_color=fill_color,
-                stroke_color=stroke_color,
-                font_color=font_color,
-            ))
+            raw_nodes.append({
+                'original_id': cell_id,
+                'label': label if label else f"Node_{cell_id[-4:]}",
+                'shape': shape,
+                'x': x, 'y': y, 'width': w, 'height': h,
+                'parent_raw': parent_id if parent_id not in ('0', '1') else None,
+                'fill_color': fill_color,
+                'stroke_color': stroke_color,
+                'font_color': font_color,
+            })
+
+    used_ids: set = set()
+    old_to_new: Dict[str, str] = {}
+
+    for g in raw_groups.values():
+        new_id = make_readable_id(g['label'], used_ids)
+        old_to_new[g['original_id']] = new_id
+
+    for n in raw_nodes:
+        new_id = make_readable_id(n['label'], used_ids)
+        old_to_new[n['original_id']] = new_id
+
+    nodes: List[DiagramNode] = []
+    for n in raw_nodes:
+        new_id = old_to_new[n['original_id']]
+        parent_new = old_to_new.get(n['parent_raw']) if n['parent_raw'] else None
+        nodes.append(DiagramNode(
+            id=new_id,
+            label=n['label'],
+            shape=n['shape'],
+            x=n['x'], y=n['y'], width=n['width'], height=n['height'],
+            parent_group=parent_new,
+            fill_color=n['fill_color'],
+            stroke_color=n['stroke_color'],
+            font_color=n['font_color'],
+            confidence=1.0,
+            metadata={'_original_id': n['original_id']},
+        ))
+
+    groups: Dict[str, DiagramGroup] = {}
+    for raw_g in raw_groups.values():
+        new_id = old_to_new[raw_g['original_id']]
+        children_new = [old_to_new.get(c, c) for c in raw_g['raw_children']]
+        groups[new_id] = DiagramGroup(
+            id=new_id,
+            label=raw_g['label'],
+            children=children_new,
+            confidence=1.0,
+        )
 
     for node in nodes:
         if node.parent_group and node.parent_group in groups:
-            groups[node.parent_group].children.append(node.id)
+            if node.id not in groups[node.parent_group].children:
+                groups[node.parent_group].children.append(node.id)
+
+    edges: List[DiagramEdge] = []
+    for re_ in raw_edges:
+        edges.append(DiagramEdge(
+            id=re_['id'],
+            source=old_to_new.get(re_['source_raw'], re_['source_raw']),
+            target=old_to_new.get(re_['target_raw'], re_['target_raw']),
+            label=re_['label'],
+            style=re_['style'],
+            arrow_start=re_['arrow_start'],
+            arrow_end=re_['arrow_end'],
+            confidence=1.0,
+        ))
 
     direction = detect_direction(nodes)
 

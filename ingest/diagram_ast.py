@@ -14,9 +14,32 @@ import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
-AST_SCHEMA_VERSION = "2.0.0"
+AST_SCHEMA_VERSION = "3.0.0"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Shared human-readable ID generator
+# ──────────────────────────────────────────────────────────────────
+
+def make_readable_id(label: str, used_ids: Set[str]) -> str:
+    """Generate a human-readable ID from a label, ensuring uniqueness.
+
+    Examples: "API Gateway" -> "api_gateway", "PostgreSQL DB" -> "postgresql_db"
+    """
+    clean = re.sub(r'[^a-zA-Z0-9]', '_', label.lower())
+    clean = re.sub(r'_+', '_', clean).strip('_')
+    if not clean or clean[0].isdigit():
+        clean = 'n_' + clean
+    clean = clean[:30]
+    uid = clean
+    counter = 2
+    while uid in used_ids:
+        uid = f"{clean}_{counter}"
+        counter += 1
+    used_ids.add(uid)
+    return uid
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -37,6 +60,8 @@ class DiagramNode:
     font_color: Optional[str] = None
     parent_group: Optional[str] = None
     role: str = ""
+    secondary_role: str = ""
+    confidence: float = 1.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -51,7 +76,9 @@ class DiagramEdge:
     arrow_end: bool = True
     color: Optional[str] = None
     protocol: str = ""
+    protocols: List[str] = field(default_factory=list)
     sequence_order: int = 0
+    confidence: float = 1.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -64,6 +91,7 @@ class DiagramGroup:
     style: str = "solid"
     fill_color: Optional[str] = None
     zone_type: str = ""
+    confidence: float = 1.0
 
 
 @dataclass
@@ -145,11 +173,18 @@ _ROLE_PATTERNS = [
     (r'(?i)\b(postgres|mysql|mongo|dynamo|cassandra|redis\s*db|database|data\s*store|aurora|rds)\b', 'datastore'),
     (r'(?i)\b(api\s*gate\s*way|gateway|apigw|api\s*gw|kong|zuul|envoy\s*proxy)\b', 'gateway'),
     (r'(?i)\b(queue|mq|kafka|rabbit\s*mq|sqs|kinesis|pub\s*sub|event\s*bus|topic|nats)\b', 'queue'),
-    (r'(?i)\b(cache|redis|memcache[d]?|cdn|edge\s*cache|varnish)\b', 'cache'),
+    (r'(?i)\b(cache|redis|memcache[d]?|edge\s*cache|varnish)\b', 'cache'),
     (r'(?i)\b(load\s*balanc|lb|nginx|haproxy|alb|nlb|elb|traefik)\b', 'load_balancer'),
     (r'(?i)\b(user|actor|client|browser|mobile|end.?user|customer)\b', 'actor'),
     (r'(?i)\b(external|third.?party|vendor|partner|saas|3rd)\b', 'external'),
     (r'(?i)\b(interface|api|endpoint|rest\s*api|graphql)\b', 'interface'),
+    (r'(?i)\b(auth|identity|oauth|oidc|idp|keycloak|okta|auth0|cognito)\b', 'auth_service'),
+    (r'(?i)\b(notification|email|sms|push|sendgrid|ses|twilio)\b', 'notification'),
+    (r'(?i)\b(cdn|cloudfront|akamai|fastly|cloud\s*cdn)\b', 'cdn'),
+    (r'(?i)\b(waf|firewall|fw|network\s*acl|security\s*group)\b', 'firewall'),
+    (r'(?i)\b(monitoring|prometheus|grafana|datadog|new\s*relic|observ|apm)\b', 'monitoring'),
+    (r'(?i)\b(ci\s*cd|cicd|jenkins|github\s*actions|pipeline|gitlab\s*ci|circle\s*ci|argo)\b', 'ci_cd'),
+    (r'(?i)\b(object\s*stor|s3|blob|gcs|minio|storage\s*bucket)\b', 'object_store'),
 ]
 
 _PROTOCOL_PATTERNS = [
@@ -180,7 +215,7 @@ _ZONE_PATTERNS = [
 
 
 def infer_node_role(label: str, shape: str) -> str:
-    """Deterministically infer a node's architectural role from its label and shape."""
+    """Deterministically infer a node's primary architectural role from its label and shape."""
     if shape == "database":
         return "datastore"
     if shape == "diamond":
@@ -195,14 +230,33 @@ def infer_node_role(label: str, shape: str) -> str:
     return "service"
 
 
+def infer_secondary_role(label: str, primary_role: str) -> str:
+    """Return a secondary role if the label matches a second pattern beyond the primary."""
+    for pattern, role in _ROLE_PATTERNS:
+        if role != primary_role and re.search(pattern, label):
+            return role
+    return ""
+
+
 def infer_edge_protocol(label: str) -> str:
-    """Extract protocol from an edge label via regex matching."""
+    """Extract the primary protocol from an edge label via regex matching."""
     if not label:
         return ""
     for pattern, protocol in _PROTOCOL_PATTERNS:
         if re.search(pattern, label):
             return protocol
     return ""
+
+
+def infer_edge_protocols(label: str) -> List[str]:
+    """Extract ALL matching protocols from an edge label."""
+    if not label:
+        return []
+    found: List[str] = []
+    for pattern, protocol in _PROTOCOL_PATTERNS:
+        if re.search(pattern, label):
+            found.append(protocol)
+    return found
 
 
 def infer_zone_type(label: str) -> str:
@@ -244,10 +298,14 @@ def enrich_ast(ast: DiagramAST) -> DiagramAST:
     for node in ast.nodes:
         if not node.role:
             node.role = infer_node_role(node.label, node.shape)
+        if not node.secondary_role:
+            node.secondary_role = infer_secondary_role(node.label, node.role)
 
     for edge in ast.edges:
         if not edge.protocol:
             edge.protocol = infer_edge_protocol(edge.label)
+        if not edge.protocols:
+            edge.protocols = infer_edge_protocols(edge.label)
 
     for group in ast.groups:
         if not group.zone_type:
@@ -272,7 +330,13 @@ def _esc(text: str) -> str:
 
 
 def ast_to_markdown_tables(ast: DiagramAST, source_name: str = "") -> str:
-    """Convert a DiagramAST into markdown tables for embedding in page.md."""
+    """Convert a DiagramAST into human-readable markdown tables for page.md.
+
+    Tables use labels instead of raw IDs for readability:
+    - Node Group column shows the group label
+    - Edge From/To columns show node labels
+    - Group Contains column shows child node labels
+    """
     lines: List[str] = []
 
     heading = f"#### Diagram: {source_name}" if source_name else "#### Diagram"
@@ -288,42 +352,52 @@ def ast_to_markdown_tables(ast: DiagramAST, source_name: str = "") -> str:
             lines.append(f"- {color} = {meaning}")
         lines.append("")
 
+    id_to_label: Dict[str, str] = {}
+    for n in ast.nodes:
+        id_to_label[n.id] = n.label or n.id
+    for g in ast.groups:
+        id_to_label[g.id] = g.label or g.id
+
+    def _resolve(node_id: str) -> str:
+        return id_to_label.get(node_id, node_id)
+
     if ast.nodes:
         lines.append("##### Nodes")
         lines.append("")
-        lines.append("| ID | Label | Role | Shape | Fill | Stroke | Group |")
-        lines.append("|----|-------|------|-------|------|--------|-------|")
+        lines.append("| ID | Label | Role | Shape | Group |")
+        lines.append("|----|-------|------|-------|-------|")
         for n in ast.nodes:
+            group_label = _resolve(n.parent_group) if n.parent_group else ""
             lines.append(
                 f"| {_esc(n.id)} | {_esc(n.label)} | {_esc(n.role)} "
-                f"| {_esc(n.shape)} | {_esc(n.fill_color or '')} "
-                f"| {_esc(n.stroke_color or '')} | {_esc(n.parent_group or '')} |"
+                f"| {_esc(n.shape)} | {_esc(group_label)} |"
             )
         lines.append("")
 
     if ast.edges:
         lines.append("##### Edges")
         lines.append("")
-        lines.append("| Source | Target | Label | Protocol | Style | Direction |")
-        lines.append("|--------|--------|-------|----------|-------|-----------|")
+        lines.append("| From | To | Label | Protocol | Style |")
+        lines.append("|------|----|-------|----------|-------|")
         for e in ast.edges:
-            direction = "both" if e.arrow_start and e.arrow_end else "forward" if e.arrow_end else "back" if e.arrow_start else "none"
+            arrow = "<->" if e.arrow_start and e.arrow_end else "->" if e.arrow_end else "<-" if e.arrow_start else "--"
+            proto = ", ".join(e.protocols) if e.protocols else e.protocol
             lines.append(
-                f"| {_esc(e.source)} | {_esc(e.target)} | {_esc(e.label)} "
-                f"| {_esc(e.protocol)} | {_esc(e.style)} | {direction} |"
+                f"| {_esc(_resolve(e.source))} | {_esc(_resolve(e.target))} "
+                f"| {_esc(e.label)} | {_esc(proto)} | {_esc(e.style)} {arrow} |"
             )
         lines.append("")
 
     if ast.groups:
         lines.append("##### Groups")
         lines.append("")
-        lines.append("| ID | Label | Zone Type | Children |")
-        lines.append("|----|-------|-----------|----------|")
+        lines.append("| Group | Zone | Contains |")
+        lines.append("|-------|------|----------|")
         for g in ast.groups:
-            children_str = ", ".join(g.children)
+            children_labels = ", ".join(_resolve(c) for c in g.children)
             lines.append(
-                f"| {_esc(g.id)} | {_esc(g.label)} "
-                f"| {_esc(g.zone_type)} | {_esc(children_str)} |"
+                f"| {_esc(g.label)} | {_esc(g.zone_type)} "
+                f"| {_esc(children_labels)} |"
             )
         lines.append("")
 

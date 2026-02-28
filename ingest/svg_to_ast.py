@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ingest.diagram_ast import (
-    DiagramAST, DiagramNode, DiagramEdge,
-    save_ast, enrich_ast,
+    DiagramAST, DiagramNode, DiagramEdge, DiagramGroup,
+    save_ast, enrich_ast, make_readable_id, infer_zone_type,
 )
 
 
@@ -220,6 +220,85 @@ def _has_marker_start(elem: ET.Element) -> bool:
 # SVG → DiagramAST
 # ──────────────────────────────────────────────────────────────────
 
+def _extract_svg_groups(
+    root: ET.Element,
+    labeled_shapes: List[dict],
+    used_ids: set,
+) -> List[DiagramGroup]:
+    """Detect <g> elements with labels that contain 2+ shapes as logical groups."""
+    groups: List[DiagramGroup] = []
+
+    for elem in root.iter():
+        tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+        if tag != 'g':
+            continue
+
+        g_label = ''
+        title_el = None
+        for child in elem:
+            child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if child_tag == 'title':
+                g_label = (child.text or '').strip()
+                title_el = child
+            elif child_tag == 'desc' and not g_label:
+                g_label = (child.text or '').strip()
+            elif child_tag in ('text', 'tspan') and not g_label:
+                g_label = (child.text or '').strip()
+
+        if not g_label:
+            g_id = elem.get('id', '')
+            if g_id and not re.match(r'^(g\d+|layer\d+|svg_.*)$', g_id, re.IGNORECASE):
+                g_label = g_id
+
+        if not g_label:
+            continue
+
+        g_bb = _group_bbox(elem)
+        if g_bb is None:
+            continue
+
+        children_ids = []
+        for s in labeled_shapes:
+            sc = s['center']
+            if (g_bb[0] <= sc[0] <= g_bb[0] + g_bb[2] and
+                    g_bb[1] <= sc[1] <= g_bb[1] + g_bb[3]):
+                children_ids.append(s['id'])
+
+        if len(children_ids) < 2:
+            continue
+
+        gid = make_readable_id(g_label, used_ids)
+        zone = infer_zone_type(g_label)
+        groups.append(DiagramGroup(
+            id=gid, label=g_label, children=children_ids,
+            zone_type=zone, confidence=0.7,
+        ))
+
+        for s in labeled_shapes:
+            if s['id'] in children_ids:
+                s['_parent_group'] = gid
+
+    return groups
+
+
+def _group_bbox(elem: ET.Element) -> Optional[Tuple[float, float, float, float]]:
+    """Compute approximate bounding box of a <g> element from its children."""
+    min_x, min_y = float('inf'), float('inf')
+    max_x, max_y = float('-inf'), float('-inf')
+    found = False
+    for child in elem.iter():
+        bb = _bbox(child)
+        if bb:
+            found = True
+            min_x = min(min_x, bb[0])
+            min_y = min(min_y, bb[1])
+            max_x = max(max_x, bb[0] + bb[2])
+            max_y = max(max_y, bb[1] + bb[3])
+    if not found:
+        return None
+    return (min_x, min_y, max_x - min_x, max_y - min_y)
+
+
 def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
     """Parse SVG XML into a DiagramAST.  Returns None for raster-only SVGs."""
     if is_embedded_raster(svg_content):
@@ -248,7 +327,7 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
                     'elem': elem, 'bbox': bb, 'center': _center(bb),
                     'fill': fill, 'stroke': stroke,
                     'type': _detect_shape_type(elem),
-                    'label': None, 'id': None,
+                    'label': None, 'id': None, '_parent_group': None,
                 })
 
         elif tag in ('text', 'tspan'):
@@ -300,46 +379,49 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
     if not raw_shapes:
         return None
 
-    # Associate text labels with shapes
     for txt in texts_with_pos:
         best_shape = None
         best_dist = float('inf')
+        inside = False
         for shape in raw_shapes:
             bb = shape['bbox']
             cx, cy = _center(bb)
-            if (bb[0] <= txt['x'] <= bb[0] + bb[2] and
-                    bb[1] - 10 <= txt['y'] <= bb[1] + bb[3] + 10):
-                d = math.sqrt((txt['x'] - cx) ** 2 + (txt['y'] - cy) ** 2)
-                if d < best_dist:
-                    best_dist = d
-                    best_shape = shape
+            txt_inside = (bb[0] <= txt['x'] <= bb[0] + bb[2] and
+                          bb[1] - 10 <= txt['y'] <= bb[1] + bb[3] + 10)
+            d = math.sqrt((txt['x'] - cx) ** 2 + (txt['y'] - cy) ** 2)
+            if txt_inside and d < best_dist:
+                best_dist = d
+                best_shape = shape
+                inside = True
         if best_shape:
             if best_shape['label']:
                 best_shape['label'] += ' ' + txt['text']
             else:
                 best_shape['label'] = txt['text']
+            best_shape['_text_inside'] = inside
 
     labeled_shapes = [s for s in raw_shapes if s.get('label')]
     if not labeled_shapes:
         for i, s in enumerate(raw_shapes):
             s['label'] = f"Node {i + 1}"
+            s['_text_inside'] = False
         labeled_shapes = raw_shapes
 
     used_ids: set = set()
     for s in labeled_shapes:
-        base_id = _sanitize_id(s['label'])
-        uid = base_id
-        counter = 1
-        while uid in used_ids:
-            uid = f"{base_id}_{counter}"
-            counter += 1
-        s['id'] = uid
-        used_ids.add(uid)
+        s['id'] = make_readable_id(s['label'], used_ids)
 
-    # Build DiagramNode list
+    svg_groups = _extract_svg_groups(root, labeled_shapes, used_ids)
+
     ast_nodes: List[DiagramNode] = []
     for s in labeled_shapes:
         bb = s['bbox']
+        if s.get('_text_inside'):
+            conf = 0.9
+        elif s.get('label', '').startswith('Node '):
+            conf = 0.3
+        else:
+            conf = 0.6
         ast_nodes.append(DiagramNode(
             id=s['id'],
             label=s['label'],
@@ -347,9 +429,10 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
             x=bb[0], y=bb[1], width=bb[2], height=bb[3],
             fill_color=s.get('fill'),
             stroke_color=s.get('stroke'),
+            parent_group=s.get('_parent_group'),
+            confidence=conf,
         ))
 
-    # Build DiagramEdge list
     ast_edges: List[DiagramEdge] = []
     seen_edges: set = set()
     edge_counter = 0
@@ -395,6 +478,7 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
                 arrow_end=line.get('has_arrow', True),
                 arrow_start=line.get('has_start_arrow', False),
                 label=line.get('label') or '',
+                confidence=0.5,
             ))
 
     all_y = [s['center'][1] for s in labeled_shapes]
@@ -406,7 +490,7 @@ def convert_svg_to_ast(svg_content: str) -> Optional[DiagramAST]:
     ast = DiagramAST(
         nodes=ast_nodes,
         edges=ast_edges,
-        groups=[],
+        groups=svg_groups,
         diagram_type='flowchart',
         direction=direction,
         metadata={'source_format': 'svg', 'extraction_method': 'xml_parse'},

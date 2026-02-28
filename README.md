@@ -43,6 +43,15 @@ make refresh-rules FOLDER=governance/indexes/security/
 # Check which rules are stale
 make check-rules FOLDER=governance/indexes/security/
 
+# Enrich rules with LLM-generated synonyms/patterns (cached)
+make enrich-rules PAGE=123456789 INDEX=security
+
+# Extract structured claims from a page (cached)
+make extract-claims PAGE=123456789 INDEX=security
+
+# Run deterministic scoring (pure Python, no LLM)
+make score PAGE=123456789 INDEX=security
+
 # Validate directly with a single agent
 @patterns-agent Validate governance/output/123456789/page.md
 @standards-agent Validate governance/output/123456789/page.md
@@ -62,6 +71,15 @@ flowchart TB
 
     subgraph Orchestration[Governance Agent]
         GA[governance-agent]
+    end
+
+    subgraph Scoring[4-Layer Deterministic Scoring]
+        direction TB
+        EN["A. Enrich Rules\n(LLM, cached)\nrules-enriched.json"]
+        CL["B. Extract Claims\n(LLM, cached)\npage-claims.json"]
+        SC["C. Deterministic Scorer\n(Pure Python)\npre-score.json"]
+        EN --> SC
+        CL --> SC
     end
 
     subgraph Ingestion[Ingestion Pipeline]
@@ -95,7 +113,7 @@ flowchart TB
         PatSkills["patterns\npattern-validate"]
         StdSkills["standards\nstandards-validate"]
         SecSkills["security\nsecurity-validate\n+ external skills"]
-        UtilSkills["utility\nindex-query\nrules-extract\n  rules_check.py"]
+        UtilSkills["utility\nindex-query\nrules-extract\nrules-enrich\nclaims-extract"]
         RepSkills["reporting\nmerge-reports\nmarkdown-to-html"]
     end
 
@@ -112,9 +130,12 @@ flowchart TB
     U3 -->|folder| RE
     U4 -->|page.md path| PA & SA & SEA
     GA -->|step 1| IA
-    GA -->|step 3| PA
-    GA -->|step 4| SA
-    GA -->|step 5| SEA
+    GA -->|step 3| EN
+    GA -->|step 4| CL
+    GA -->|step 5| SC
+    GA -->|step 6| PA
+    GA -->|step 7| SA
+    GA -->|step 8| SEA
 
     %% Ingestion triggers rules extraction
     IA -->|"after index"| RE
@@ -176,11 +197,14 @@ Internally triggers:
 |------|-------------|-------------|
 | 1 | (deterministic) | `python -c "from ingest import ingest_page; ingest_page(page_id='<PAGE_ID>')"` |
 | 2 | (deterministic) | `python -m ingest.extract_rules --folder governance/indexes/<index>/` (ensure `_all.rules.md` exists) |
-| 3 | patterns-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 4 | standards-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 5 | security-agent | `Validate governance/output/<PAGE_ID>/page.md` |
-| 6 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
-| 7 | (self) | Generate HTML dashboard (markdown-to-html skill) |
+| 3 | (LLM, cached) | `python -m ingest.enrich_rules --page <PAGE_ID> --index <index>` (enrich rules -> `rules-enriched.json`) |
+| 4 | (LLM, cached) | `python -m ingest.extract_claims --page <PAGE_ID> --index <index>` (extract claims -> `page-claims.json`) |
+| 5 | (deterministic) | `python -m ingest.score_rules --page <PAGE_ID> --index <index>` (score -> `pre-score.json`) |
+| 6 | patterns-agent | `Validate governance/output/<PAGE_ID>/page.md` (uses `pre-score.json` for locked rules) |
+| 7 | standards-agent | `Validate governance/output/<PAGE_ID>/page.md` (uses `pre-score.json` for locked rules) |
+| 8 | security-agent | `Validate governance/output/<PAGE_ID>/page.md` (uses `pre-score.json` for locked rules) |
+| 9 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
+| 10 | (self) | Generate HTML dashboard (markdown-to-html skill) |
 
 Ingestion is done deterministically via the `ingest/` Python package. Use the CLI (`python ingest/confluence_ingest.py --page-id <PAGE_ID> --index <security|patterns|standards>`) or the watcher server (`make serve`) to ingest pages.
 
@@ -210,7 +234,7 @@ Validates a document against all security documents in the index. Typically call
 
 ### Rules Extraction (Deterministic CLI)
 
-Extracts structural governance rules from DiagramAST data into `.rules.md` table files. Zero LLM — runs as deterministic Python tooling. Automatically invoked during index-mode ingestion; also callable standalone.
+Extracts structural governance rules from DiagramAST data into `.rules.md` table files. Zero LLM -- runs as deterministic Python tooling. Automatically invoked during index-mode ingestion; also callable standalone. Rules use stable content-hashed IDs (`R-{CATEGORY}-{6-char MD5}`) that survive re-extraction.
 
 ```bash
 # Batch: extract rules for all pages in an index folder
@@ -228,6 +252,33 @@ python -m ingest.extract_rules --all
 # Check staleness (no extraction)
 make check-rules FOLDER=governance/indexes/security/
 make check-rules-all
+```
+
+### Rule Enrichment (LLM, Cached)
+
+Generates synonyms, regex evidence patterns, and section hints for each extracted rule. Output is cached in `rules-enriched.json` and only re-run when rules change.
+
+```bash
+python -m ingest.enrich_rules --page 123456789 --index security
+make enrich-rules PAGE=123456789 INDEX=security
+```
+
+### Claims Extraction (LLM, Cached)
+
+Extracts structured per-topic claims from `page.md`. Output is cached in `page-claims.json` and only re-run when page content changes.
+
+```bash
+python -m ingest.extract_claims --page 123456789 --index security
+make extract-claims PAGE=123456789 INDEX=security
+```
+
+### Deterministic Scoring (Pure Python)
+
+Matches enriched rules against extracted claims + AST facts to produce `pre-score.json`. 100% deterministic, no LLM calls. Locked rules are final; unlocked rules (~10-20%) are passed to validation agents for LLM re-evaluation.
+
+```bash
+python -m ingest.score_rules --page 123456789 --index security
+make score PAGE=123456789 INDEX=security
 ```
 
 ## Workflows
@@ -337,25 +388,27 @@ sequenceDiagram
         RE-->>GA: _all.rules.md written
     end
 
-    Note over GA,SEA: Steps 3-5: Parallel Validation
+    Note over GA,RE: Steps 3-5: Deterministic Scoring Pipeline
+    GA->>GA: Enrich rules (LLM, cached → rules-enriched.json)
+    GA->>GA: Extract claims (LLM, cached → page-claims.json)
+    GA->>GA: Deterministic score (Python → pre-score.json)
+
+    Note over GA,SEA: Steps 6-8: Parallel Validation (locked rules skip LLM)
     par patterns
         GA->>PA: Validate patterns
-        PA->>PA: Read _all.rules.md + page.md (with AST tables)
-        PA->>PA: Check rules (text + AST Condition)
+        PA->>PA: Read pre-score.json (accept locked, re-evaluate unlocked)
         PA-->>GA: patterns-report.md
     and standards
         GA->>SA: Validate standards
-        SA->>SA: Read _all.rules.md + page.md (with AST tables)
-        SA->>SA: Check rules (text + AST Condition)
+        SA->>SA: Read pre-score.json (accept locked, re-evaluate unlocked)
         SA-->>GA: standards-report.md
     and security
         GA->>SEA: Validate security
-        SEA->>SEA: Read _all.rules.md + page.md (with AST tables)
-        SEA->>SEA: Check rules (text + AST Condition)
+        SEA->>SEA: Read pre-score.json (accept locked, re-evaluate unlocked)
         SEA-->>GA: security-report.md
     end
 
-    Note over GA: Steps 6-7: Consolidate
+    Note over GA: Steps 9-10: Consolidate
     GA->>GA: Merge reports (30/30/40 weights)
     GA->>GA: Generate HTML dashboard
     GA-->>User: governance-report.html
@@ -424,6 +477,9 @@ ln -sf ../copilot/skills .github/skills
 | Check all rules | `make check-rules-all` |
 | Refresh rules (show instructions) | `make refresh-rules FOLDER=governance/indexes/security/` |
 | Extract rules (show instructions) | `make extract-rules` |
+| Enrich rules (LLM, cached) | `make enrich-rules PAGE=123456789 INDEX=security` |
+| Extract claims (LLM, cached) | `make extract-claims PAGE=123456789 INDEX=security` |
+| Deterministic scoring | `make score PAGE=123456789 INDEX=security` |
 | Start watcher server | `make serve` |
 | Add external skill | `make add-skill REPO=<url> NAME=<name>` |
 | Add external skill (nested) | `make add-skill REPO=<url> NAME=<name> SKILL_PATH=<path>` |
@@ -448,6 +504,9 @@ All outputs saved to `governance/output/`:
 | `<PAGE_ID>/metadata.json` | Page metadata from Confluence |
 | `<PAGE_ID>/attachments/` | Original downloaded files |
 | `<PAGE_ID>/attachments/<name>.ast.json` | AST JSON per diagram (canonical semantic representation) |
+| `<PAGE_ID>/rules-enriched.json` | LLM-enriched rules with synonyms, patterns, section hints (cached) |
+| `<PAGE_ID>/page-claims.json` | LLM-extracted structured claims per topic (cached) |
+| `<PAGE_ID>/pre-score.json` | Deterministic scoring output: locked/unlocked rule statuses |
 | `<PAGE_ID>-patterns-report.md` | Pattern validation results |
 | `<PAGE_ID>-standards-report.md` | Standards validation results |
 | `<PAGE_ID>-security-report.md` | Security validation results |
@@ -470,7 +529,10 @@ ingest/                         # Deterministic ingestion pipeline (Python packa
 ├── drawio_to_ast.py            # Draw.io XML → AST JSON
 ├── svg_to_ast.py               # SVG XML → AST JSON
 ├── plantuml_to_ast.py          # PlantUML → AST JSON
-└── extract_rules.py            # Deterministic rules extractor (batch/refresh/single CLI)
+├── extract_rules.py            # Deterministic rules extractor (batch/refresh/single CLI)
+├── enrich_rules.py             # LLM enrichment helper (staleness check, schema, validation)
+├── extract_claims.py           # LLM claims extraction helper (AST facts, schema, validation)
+└── score_rules.py              # Deterministic scoring engine (matches rules vs claims + AST)
 
 server/                         # FastAPI watcher server
 ├── app.py                      # Routes, UI, and ingestion triggers
@@ -491,6 +553,8 @@ copilot/                        # Source files (mounted as .github/ in Docker)
     ├── rules-extract/          # category: utility
     │   ├── SKILL.md
     │   └── rules_check.py      # Staleness checker (zero deps)
+    ├── rules-enrich/           # category: utility — LLM enrichment skill
+    ├── claims-extract/         # category: utility — LLM claims extraction skill
     ├── pattern-validate/       # category: patterns
     ├── standards-validate/     # category: standards
     ├── security-validate/      # category: security
@@ -507,9 +571,12 @@ governance/
 │   ├── patterns/
 │   │   ├── _all.rules.md                 # Consolidated rules (deduplicated)
 │   │   └── <PAGE_ID>/                    # Per-page artifact folder
-│   │       ├── page.md                   # Source document with embedded AST tables
-│   │       ├── metadata.json             # Page metadata
-│   │       └── rules.md                  # Extracted rules (with AST Condition)
+    │   │       ├── page.md                   # Source document with embedded AST tables
+    │   │       ├── metadata.json             # Page metadata
+    │   │       ├── rules.md                  # Extracted rules (content-hashed IDs, confidence)
+    │   │       ├── rules-enriched.json       # LLM-enriched rules (synonyms, patterns) [cached]
+    │   │       ├── page-claims.json          # LLM-extracted claims per topic [cached]
+    │   │       └── pre-score.json            # Deterministic scoring output [locked/unlocked]
 │   ├── standards/
 │   │   ├── _all.rules.md
 │   │   └── <PAGE_ID>/ ...
@@ -532,7 +599,33 @@ governance/
 
 ## Scoring
 
-Governance score calculated as weighted average:
+### 4-Layer Deterministic Scoring Pipeline
+
+The scoring system uses a hybrid approach that freezes LLM variance at extraction time, making scoring 100% deterministic:
+
+| Layer | When | What | LLM? |
+|-------|------|------|------|
+| **A. Rule Enrichment** | After indexing (cached) | Generates synonyms, regex patterns, section hints for each rule -> `rules-enriched.json` | LLM (cached) |
+| **B. Page Claims** | Per page change (cached) | Extracts structured per-topic claims from page.md -> `page-claims.json` | LLM (cached) |
+| **C. Deterministic Scorer** | Every run | Matches enriched rules against claims + AST facts -> `pre-score.json` | Pure Python |
+| **D. Residual LLM** | Only unlocked items (~10-20%) | Validation agents re-evaluate only WEAK_EVIDENCE and CONTRADICTION items | LLM (minimal) |
+
+### Rule Scoring Statuses
+
+| Status | Score | Locked | Description |
+|--------|-------|--------|-------------|
+| CONFIRMED_PASS | 100 | Yes | AST condition confirms rule is satisfied |
+| STRONG_PASS | 95 | Yes | Page claims: topic implemented with evidence |
+| PATTERN_PASS | 85 | Yes | 2+ evidence regex patterns matched |
+| CO_OCCUR_PASS | 80 | Yes | Co-occurrence group fully matched |
+| WEAK_EVIDENCE | 50 | No | Single keyword/synonym match (LLM evaluates) |
+| CONTRADICTION | 40 | No | AST contradicts text claim (LLM resolves) |
+| DEFERRED_ERROR | 20 | Yes | Topic explicitly marked as planned/TBD |
+| NEGATION_ERROR | 10 | Yes | Negation pattern matched |
+| ABSENT_ERROR | 0 | Yes | No evidence found |
+| CONFIRMED_ERROR | 0 | Yes | AST condition confirms violation |
+
+### Category Weights
 
 | Category | Weight |
 |----------|--------|
@@ -541,9 +634,17 @@ Governance score calculated as weighted average:
 | Security | 40% |
 
 **Thresholds:**
-- **PASS**: Score ≥ 70
+- **PASS**: Score >= 70
 - **WARN**: Score 50-69
 - **FAIL**: Score < 50
+
+### Expected Impact
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Score variance per run | ~15-25 points | ~1-3 points |
+| % rules scored by LLM | 100% | ~10-20% |
+| Re-score unchanged page | Full LLM run (~3-5 min) | Instant (cached, Python only) |
 
 ## Skill Discovery
 
@@ -563,7 +664,7 @@ This means adding a new skill requires **zero changes to agent files**.
 | `security` | security-agent | security-validate, + external |
 | `patterns` | patterns-agent | pattern-validate |
 | `standards` | standards-agent | standards-validate |
-| `utility` | all validation agents | index-query, rules-extract |
+| `utility` | all validation agents | index-query, rules-extract, rules-enrich, claims-extract |
 | `reporting` | governance-agent | merge-reports, markdown-to-html |
 
 ### Adding a Category Tag

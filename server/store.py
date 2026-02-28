@@ -117,6 +117,7 @@ class WatcherStore:
             "last_version": None,
             "last_ingested": None,
             "validated_at": None,
+            "enriched_at": None,
             "status": "pending",
             "added_at": datetime.now().isoformat(),
             "error": None,

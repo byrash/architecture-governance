@@ -259,6 +259,21 @@ async def mark_ready(page_id: str):
 
 
 # ──────────────────────────────────────────────────────────────────
+# REST API — Enrichment (webhook from governance-agent)
+# ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/pages/{page_id}/enriched")
+async def post_enriched(page_id: str, request: Request):
+    """Report that rules enrichment is complete for an indexed page."""
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    store.update_page(page_id, enriched_at=datetime.now().isoformat())
+    return JSONResponse(content={"ok": True})
+
+
+# ──────────────────────────────────────────────────────────────────
 # REST API — Progress (webhook from governance-agent)
 # ──────────────────────────────────────────────────────────────────
 

@@ -13,16 +13,22 @@ Validate architecture document against all design pattern documents in the index
 1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
 2. **Index**: `governance/indexes/patterns/` (rules and per-page content)
 3. **AST files**: `governance/output/<PAGE_ID>/*.ast.json` — diagram structure (nodes, edges, groups)
+4. **Pre-score** (optional): `governance/output/<PAGE_ID>/pre-score.json` — deterministic pre-scoring results
 
 ## Instructions
 
-1. Read rules from `governance/indexes/patterns/` (per index-query: `_all.rules.md` > `<PAGE_ID>/rules.md` > `<PAGE_ID>/page.md`)
-2. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/`
-3. For each pattern found in the index, analyze if the document addresses it:
-   - **Required patterns**: Must be present → PASS/FAIL
-   - **Recommended patterns**: Nice to have → PASS/WARN
-   - **Anti-patterns**: Must NOT be present → PASS/FAIL
-4. Calculate score and write report
+1. **Check for pre-score.json** at `governance/output/<PAGE_ID>/pre-score.json`
+   - If it exists, read it and use the locked/unlocked status for each rule
+   - **Locked rules**: Accept the pre-score status as-is — do NOT re-evaluate
+   - **Unlocked rules** (WEAK_EVIDENCE, CONTRADICTION): Evaluate using full LLM analysis
+   - If pre-score.json does not exist, evaluate all rules normally (backward compatible)
+2. Read rules from `governance/indexes/patterns/` (per index-query: `_all.rules.md` > `<PAGE_ID>/rules.md` > `<PAGE_ID>/page.md`)
+3. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/`
+4. For each pattern found in the index, analyze if the document addresses it (skip locked rules from pre-score):
+   - **Required patterns**: Must be present -> PASS/FAIL
+   - **Recommended patterns**: Nice to have -> PASS/WARN
+   - **Anti-patterns**: Must NOT be present -> PASS/FAIL
+5. Calculate score and write report — locked scores contribute their pre-score points
 
 ## Validation Approach
 

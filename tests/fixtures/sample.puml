@@ -1,0 +1,21 @@
+@startuml
+package "External" {
+  actor "User Browser" as user
+}
+
+package "Cloud VPC" {
+  component "API Gateway" as gw
+  component "User Service" as svc1
+  component "Order Service" as svc2
+  database "PostgreSQL DB" as db
+  component "Redis Cache" as cache
+}
+
+user --> gw : HTTPS
+gw --> svc1 : gRPC
+gw --> svc2 : gRPC
+svc1 --> db : JDBC
+svc2 --> db
+svc1 --> cache
+svc2 --> cache : HTTPS
+@enduml
