@@ -1,6 +1,6 @@
 # Architecture Governance Makefile
 
-.PHONY: help serve stop ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules extract-rules-all enrich-rules extract-claims score test test-parsers test-scoring test-integration
+.PHONY: help serve stop ingest validate clean release add-skill update-skills remove-skill list-skills check-rules check-rules-all refresh-rules extract-rules extract-rules-all check-zero-rules merge-llm-rules enrich-rules extract-claims score index-prepare test test-parsers test-scoring test-integration
 
 .DEFAULT_GOAL := help
 
@@ -32,6 +32,11 @@ help:
 	@echo "  make check-rules FOLDER=governance/indexes/security/     Check page.md vs rules.md staleness"
 	@echo "  make check-rules-all                                     Check all index folders"
 	@echo "  make refresh-rules FOLDER=governance/indexes/security/   Re-extract only stale/missing rules"
+	@echo "  make check-zero-rules FOLDER=governance/indexes/security/ List pages needing LLM rule extraction"
+	@echo "  make merge-llm-rules FOLDER=governance/indexes/security/ Merge deterministic + LLM rules"
+	@echo ""
+	@echo "Index Preparation (Process 1):"
+	@echo "  make index-prepare INDEX=security                        Run full index preparation pipeline"
 	@echo ""
 	@echo "Scoring Pipeline:"
 	@echo "  make enrich-rules INDEX=security                         Check enrichment staleness"
@@ -193,6 +198,22 @@ ifndef FOLDER
 endif
 	@python3 -m ingest.extract_rules --folder $(FOLDER) --refresh
 
+check-zero-rules:
+ifndef FOLDER
+	@echo "Error: FOLDER required."
+	@echo "Usage: make check-zero-rules FOLDER=governance/indexes/security/"
+	@exit 1
+endif
+	@python3 -m ingest.extract_rules --check-zero --folder $(FOLDER)
+
+merge-llm-rules:
+ifndef FOLDER
+	@echo "Error: FOLDER required."
+	@echo "Usage: make merge-llm-rules FOLDER=governance/indexes/security/"
+	@exit 1
+endif
+	@python3 -m ingest.extract_rules --merge-llm --folder $(FOLDER)
+
 enrich-rules:
 ifndef INDEX
 	@echo "Error: INDEX required."
@@ -219,6 +240,25 @@ ifndef PAGE_ID
 	@exit 1
 endif
 	@python3 -m ingest.score_rules --page-id $(PAGE_ID) --all
+
+index-prepare:
+ifndef INDEX
+	@echo "Error: INDEX required."
+	@echo "Usage: make index-prepare INDEX=security"
+	@exit 1
+endif
+	@echo "=== Index Preparation Pipeline for $(INDEX) ==="
+	@echo ""
+	@echo "Step 1: Extracting deterministic rules..."
+	@python3 -m ingest.extract_rules --folder governance/indexes/$(INDEX)/
+	@echo ""
+	@echo "Step 2: Checking for pages needing LLM extraction..."
+	@python3 -m ingest.extract_rules --check-zero --folder governance/indexes/$(INDEX)/
+	@echo ""
+	@echo "Step 3: Checking enrichment staleness..."
+	@python3 -m ingest.enrich_rules --check --index $(INDEX)
+	@echo ""
+	@echo "=== Done. Run LLM extraction + enrichment in VS Code Chat if needed. ==="
 
 test:
 	@python3 -m pytest tests/ -v

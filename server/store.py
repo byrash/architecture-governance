@@ -44,11 +44,16 @@ def parse_rules_summary(rules_md: Path) -> dict:
     return {"total": total, "severity": sev_counts, "rules": rules}
 
 
+CATEGORIES = ("patterns", "standards", "security")
+
+
 class WatcherStore:
     def __init__(self, path: Optional[Path] = None):
         self._path = path or STATE_FILE
         self._pages: Dict[str, Dict[str, Any]] = {}
         self._progress: Dict[str, List[Dict[str, Any]]] = {}
+        self._index_progress: Dict[str, List[Dict[str, Any]]] = {}
+        self._index_status: Dict[str, str] = {}
         self._version = 0
         self._event: Optional[asyncio.Event] = None
         self._load()
@@ -97,6 +102,17 @@ class WatcherStore:
             result[pid] = entry
         return result
 
+    def list_all(self) -> Dict[str, Any]:
+        """Return pages + index-level metadata for the UI."""
+        pages = self.list_pages()
+        indexes: Dict[str, Any] = {}
+        for cat in CATEGORIES:
+            indexes[cat] = {
+                "progress_log": self._index_progress.get(cat, []),
+                "status": self._index_status.get(cat, "idle"),
+            }
+        return {"pages": pages, "indexes": indexes}
+
     def get_page(self, page_id: str) -> Optional[Dict[str, Any]]:
         return self._pages.get(page_id)
 
@@ -117,6 +133,7 @@ class WatcherStore:
             "last_version": None,
             "last_ingested": None,
             "validated_at": None,
+            "llm_rules_at": None,
             "enriched_at": None,
             "status": "pending",
             "added_at": datetime.now().isoformat(),
@@ -167,4 +184,28 @@ class WatcherStore:
 
     def clear_progress(self, page_id: str) -> None:
         self._progress.pop(page_id, None)
+        self._notify()
+
+    # ── Index-level progress (in-memory only) ────────────────────
+
+    def append_index_progress(self, category: str, entry: Dict[str, Any]) -> None:
+        if category not in CATEGORIES:
+            return
+        entry["timestamp"] = datetime.now().isoformat()
+        self._index_progress.setdefault(category, []).append(entry)
+        self._index_status[category] = "preparing"
+        self._notify()
+
+    def get_index_progress(self, category: str) -> List[Dict[str, Any]]:
+        return self._index_progress.get(category, [])
+
+    def clear_index_progress(self, category: str) -> None:
+        self._index_progress.pop(category, None)
+        self._index_status.pop(category, None)
+        self._notify()
+
+    def set_index_status(self, category: str, status: str) -> None:
+        if category not in CATEGORIES:
+            return
+        self._index_status[category] = status
         self._notify()

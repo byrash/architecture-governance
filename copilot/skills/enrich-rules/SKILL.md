@@ -12,7 +12,7 @@ Enriches hand-authored governance rules with LLM-generated detection patterns to
 
 - After indexing pages and extracting rules (when `_all.rules.md` exists)
 - When the UI shows "Enrich rules for {category} index"
-- Before running validation (the governance-agent triggers this automatically if stale)
+- As part of index preparation (Process 1) via `@governance-agent Prepare index <category>` in VS Code Chat, or CLI (`make enrich-rules INDEX=<category>`)
 
 ## Workflow
 

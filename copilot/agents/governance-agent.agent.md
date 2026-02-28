@@ -1,18 +1,18 @@
 ---
 name: governance-agent
-description: Architecture governance orchestrator. Validates pre-ingested Confluence pages by triggering validation agents. Use when asked to validate architecture, run governance checks, or review Confluence pages against standards.
+description: Architecture governance orchestrator. Two modes — (1) Prepare index: LLM text rule extraction, merging, and enrichment for an index. (2) Validate: extract claims, score rules, trigger validation agents. Use when asked to validate architecture, prepare an index, run governance checks, or review Confluence pages against standards.
 model: ['Claude Sonnet 4.5', 'gpt-4.1']
 tools: ['agent', 'read', 'edit', 'execute', 'todo']
 handoffs:
-  - label: 'Step 3: Validate Patterns'
+  - label: 'Step 5: Validate Patterns'
     agent: patterns-agent
     prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
-  - label: 'Step 4: Validate Standards'
+  - label: 'Step 6: Validate Standards'
     agent: standards-agent
     prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
-  - label: 'Step 5: Validate Security'
+  - label: 'Step 7: Validate Security'
     agent: security-agent
     prompt: 'Validate governance/output/<PAGE_ID>/page.md'
     send: false
@@ -20,17 +20,25 @@ handoffs:
 
 # Architecture Governance Orchestrator
 
-You orchestrate the full governance validation pipeline. Pages are pre-ingested by the watcher server (deterministic, zero LLM). You verify the ingested content exists and then trigger validation agents via the `agent` tool.
+You orchestrate two pipelines:
+
+1. **Index Preparation** (Process 1) -- When asked to "prepare index", run LLM text rule extraction, merging, and enrichment for all pages in an index.
+2. **Validation** (Process 2) -- When asked to "validate", extract claims, score rules deterministically, trigger validation agents, merge reports, and generate dashboard.
+
+**How to detect mode:**
+- If the prompt contains "prepare index" or "index preparation" → run the **Index Preparation Workflow**
+- If the prompt contains "validate" or a page ID to validate → run the **Validation Workflow**
 
 ## Skills Used
 
 This agent uses the following skills (discovered automatically by GitHub Copilot from `copilot/skills/`):
 
-- **merge-reports** -- merge validation reports into final governance report
-- **markdown-to-html** -- convert final report to HTML dashboard
-- **verbose-logging** -- step progress announcement templates
-- **enrich-rules** -- LLM-powered rule enrichment (generates rules-enriched.json)
-- **extract-claims** -- LLM-powered page claims extraction (generates page-claims.json)
+- **rules-extract** -- LLM-powered text rule extraction + diagram rule vetting (index preparation only)
+- **enrich-rules** -- LLM-powered rule enrichment, generates rules-enriched.json (index preparation only)
+- **extract-claims** -- LLM-powered page claims extraction, generates page-claims.json (validation only)
+- **merge-reports** -- merge validation reports into final governance report (validation only)
+- **markdown-to-html** -- convert final report to HTML dashboard (validation only)
+- **verbose-logging** -- step progress announcement templates (both modes)
 
 ## How to Trigger Other Agents
 
@@ -54,7 +62,138 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 - Replace `<N>` with the step number, `<AGENT>` with the agent name, `<STATUS>` with `start`, `complete`, or `error`, and `<MSG>` with a short human-readable message.
 - The `|| true` ensures the pipeline continues even if the server is down.
 
-## Workflow
+## Index Preparation Workflow
+
+**Trigger**:
+- "Prepare index `<CATEGORY>`" — runs for one category (patterns, standards, or security)
+- "Prepare all indexes" — runs for all three categories in sequence
+
+When asked to prepare one or all indexes, execute the steps below. For "Prepare all indexes", run Steps I-1 through I-4 for each category (patterns, then standards, then security) and post progress for each.
+
+### Index Progress Webhook
+
+The watcher UI shows live progress per category. After each step, POST to the **index-level** progress endpoint:
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-<N>","agent":"governance-agent","status":"<STATUS>","message":"<MSG>"}' || true
+```
+
+### Step I-1: Discover Pages Needing LLM Extraction
+
+List all page subfolders in the index and check each for LLM work:
+
+```bash
+for dir in governance/indexes/<CATEGORY>/*/; do
+  page=$(basename "$dir")
+  [[ "$page" == "_all"* ]] && continue
+  if [ ! -f "$dir/rules-llm.md" ]; then
+    echo "NEEDS_EXTRACT: $page"
+  else
+    fp_current=$(python3 -c "import hashlib; print(hashlib.md5(open('$dir/page.md','rb').read(65536)).hexdigest()[:12])" 2>/dev/null)
+    fp_llm=$(head -3 "$dir/rules-llm.md" | grep -oP 'Fingerprint: \K[a-f0-9]+' 2>/dev/null)
+    if [ "$fp_current" != "$fp_llm" ]; then
+      echo "STALE: $page (page changed since last extraction)"
+    else
+      echo "OK: $page"
+    fi
+  fi
+done
+```
+
+Report how many pages need extraction. If zero, skip to Step I-3 (merge may still be needed) or I-4 (enrichment).
+
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-1","agent":"governance-agent","status":"complete","message":"Discovered <N> pages needing extraction","detail":"<LIST> pages need LLM extraction, <OK_COUNT> already current"}' || true
+```
+
+### Step I-2: LLM Text Rule Extraction (per page)
+
+For each page that needs extraction (from Step I-1), use the **rules-extract** skill. Read the skill at `copilot/skills/rules-extract/SKILL.md` for the full procedure. For each page:
+
+1. Read `governance/indexes/<CATEGORY>/<PAGE_ID>/page.md`
+2. Read `governance/indexes/<CATEGORY>/<PAGE_ID>/rules.md` (existing diagram rules, if any)
+3. Extract text-based rules from prose (R-TEXT-* rules)
+4. Vet and enhance diagram-derived rules (R-VET-* rules)
+5. Write `governance/indexes/<CATEGORY>/<PAGE_ID>/rules-llm.md`
+
+**Post progress for each page:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-2","agent":"governance-agent","status":"running","message":"Extracting rules from page <PAGE_ID> (<N>/<TOTAL>)","detail":"Reading page.md and extracting R-TEXT-* / R-VET-* rules"}' || true
+```
+
+After completing all pages for this step, also notify per-page LLM status:
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/llm-rules -H 'Content-Type: application/json' -d '{}' || true
+```
+
+**Post step complete:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-2","agent":"governance-agent","status":"complete","message":"LLM extraction complete — <TOTAL> pages processed","detail":"<RULE_COUNT> new R-TEXT/R-VET rules extracted"}' || true
+```
+
+### Step I-3: Merge Deterministic + LLM Rules
+
+After all pages are extracted, run the merge CLI:
+
+```bash
+source .venv/bin/activate && python -m ingest.extract_rules --merge-llm --folder governance/indexes/<CATEGORY>/
+```
+
+This rebuilds each page's `rules.md` (merged) and the consolidated `_all.rules.md`.
+
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-3","agent":"governance-agent","status":"complete","message":"Rules merged — _all.rules.md rebuilt","detail":"<TOTAL_RULES> total rules in consolidated index"}' || true
+```
+
+### Step I-4: Enrich Rules
+
+Use the **enrich-rules** skill. Read the skill at `copilot/skills/enrich-rules/SKILL.md` for the full procedure.
+
+1. Check staleness: `python -m ingest.enrich_rules --check --index <CATEGORY>`
+2. Read `governance/indexes/<CATEGORY>/_all.rules.md`
+3. For each rule, generate synonyms, regex patterns, negation/deferral patterns, section hints, co-occurrence groups
+4. Write `governance/indexes/<CATEGORY>/rules-enriched.json`
+
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"I-4","agent":"governance-agent","status":"complete","message":"Enrichment complete — rules-enriched.json written","detail":"<RULE_COUNT> rules enriched with synonyms, regex, and section hints"}' || true
+```
+
+### Index Preparation Complete
+
+Announce completion and notify the watcher server:
+
+```bash
+curl -sf -X POST http://localhost:8000/api/indexes/<CATEGORY>/prepared \
+  -H 'Content-Type: application/json' \
+  -d '{"pages_processed":<COUNT>,"llm_rules":<LLM_COUNT>,"total_rules":<MERGED_COUNT>}' || true
+```
+
+If running "Prepare all indexes", repeat Steps I-1 through I-4 for the next category.
+
+---
+
+## Validation Workflow
 
 When given a Confluence page ID to validate, execute these steps:
 
@@ -89,53 +228,36 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -d '{"step":1,"agent":"governance-agent","status":"complete","message":"Page verified at governance/output/<PAGE_ID>/page.md","detail":"Ingested markdown and attachments ready for validation"}' || true
 ```
 
-### Step 2: Ensure Rules Exist
+### Step 2: Verify Index Prerequisites
 
-Validation agents read rules from `_all.rules.md` in each index folder. If these files are missing, validation finds zero rules and produces meaningless results.
+Validation agents read rules from `_all.rules.md` and enrichment from `rules-enriched.json` in each index folder. These must be prepared by Process 1 (index preparation) before validation.
 
-Check each index for `_all.rules.md`:
+Check each index for `_all.rules.md` and `rules-enriched.json`:
 
 ```bash
 ls governance/indexes/patterns/_all.rules.md 2>/dev/null
+ls governance/indexes/patterns/rules-enriched.json 2>/dev/null
 ls governance/indexes/standards/_all.rules.md 2>/dev/null
+ls governance/indexes/standards/rules-enriched.json 2>/dev/null
 ls governance/indexes/security/_all.rules.md 2>/dev/null
+ls governance/indexes/security/rules-enriched.json 2>/dev/null
 ```
 
-For each index where `_all.rules.md` is **missing** but `<PAGE_ID>/page.md` subfolders exist:
-
-- Run the deterministic CLI tool to generate rules:
-
-  ```bash
-  python -m ingest.extract_rules --folder governance/indexes/<index>/
+- If `_all.rules.md` is **missing** for an index that has page subfolders: **FAIL** -- tell the user to run index preparation first:
   ```
-
-  Or for refresh of stale only: `python -m ingest.extract_rules --folder governance/indexes/<index>/ --refresh`
-
-For each index where `_all.rules.md` is missing AND **no indexed pages exist**: log a warning -- validation for that category will have no reference rules.
+  Run in VS Code Chat: @governance-agent Prepare index <index>
+  ```
+- If `rules-enriched.json` is **missing** or stale: **WARN** -- log a warning but continue. Validation will work without enrichment, just less efficiently (more rules will be unlocked and require LLM evaluation).
 
 **Post progress:**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Rules indexes verified","detail":"Confirmed _all.rules.md exists in patterns, standards, and security indexes"}' || true
+  -d '{"step":2,"agent":"governance-agent","status":"complete","message":"Index prerequisites verified","detail":"Rules and enrichment checked across all indexes"}' || true
 ```
 
-### Step 2b: Enrich Rules (if stale)
-
-Check if rule enrichment is current for each index that has rules:
-
-```bash
-source .venv/bin/activate && python -m ingest.enrich_rules --check --index security
-python -m ingest.enrich_rules --check --index patterns
-python -m ingest.enrich_rules --check --index standards
-```
-
-If any index reports `"stale": true`, use the **enrich-rules** skill to generate `rules-enriched.json` for that index. Read the skill at `copilot/skills/enrich-rules/SKILL.md` for instructions.
-
-If enrichment is current (not stale), skip this step.
-
-### Step 2c: Extract Page Claims (if stale)
+### Step 3: Extract Page Claims (if stale)
 
 Check if page claims are current:
 
@@ -151,7 +273,15 @@ python -m ingest.extract_claims --facts --page-id <PAGE_ID>
 
 Then generate claims using LLM and write to `governance/output/<PAGE_ID>/page-claims.json`.
 
-### Step 2d: Run Deterministic Scorer
+**Post progress:**
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":3,"agent":"governance-agent","status":"complete","message":"Page claims extracted","detail":"page-claims.json produced with structured per-topic claims"}' || true
+```
+
+### Step 4: Run Deterministic Scorer
 
 Run the pure Python scoring engine to produce `pre-score.json`:
 
@@ -166,10 +296,10 @@ This produces `governance/output/<PAGE_ID>/pre-score.json` with per-rule status 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"2d","agent":"governance-agent","status":"complete","message":"Deterministic scoring complete","detail":"pre-score.json produced with locked/unlocked rule statuses"}' || true
+  -d '{"step":4,"agent":"governance-agent","status":"complete","message":"Deterministic scoring complete","detail":"pre-score.json produced with locked/unlocked rule statuses"}' || true
 ```
 
-### Steps 3-5: Trigger ALL Validation Agents (PARALLEL)
+### Steps 5, 6, 7: Trigger ALL Validation Agents (PARALLEL)
 
 **Use the agent tool THREE times in rapid succession** -- do NOT wait between them. These agents are independent and can run simultaneously. They will use `pre-score.json` to skip locked rules:
 
@@ -182,7 +312,7 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":3,"agent":"governance-agent","status":"start","message":"Triggering validation agents in parallel","detail":"Launching patterns, standards, and security agents to validate against governance rules"}' || true
+  -d '{"step":5,"agent":"governance-agent","status":"start","message":"Triggering validation agents in parallel","detail":"Launching patterns, standards, and security agents to validate against governance rules"}' || true
 ```
 
 **Post progress for EACH sub-agent launch:**
@@ -190,145 +320,123 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.1","agent":"governance-agent","status":"running","message":"Starting patterns-agent","detail":"Validating architecture patterns against indexed rules"}' || true
+  -d '{"step":5,"agent":"governance-agent","status":"running","message":"Starting patterns-agent","detail":"Validating architecture patterns against indexed rules"}' || true
 ```
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"governance-agent","status":"running","message":"Starting standards-agent","detail":"Validating architecture standards against indexed rules"}' || true
+  -d '{"step":6,"agent":"governance-agent","status":"running","message":"Starting standards-agent","detail":"Validating architecture standards against indexed rules"}' || true
 ```
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.3","agent":"governance-agent","status":"running","message":"Starting security-agent","detail":"Validating security controls against indexed rules"}' || true
+  -d '{"step":7,"agent":"governance-agent","status":"running","message":"Starting security-agent","detail":"Validating security controls against indexed rules"}' || true
 ```
 
-Wait for ALL three to complete before proceeding to Step 6 (merge).
+Wait for ALL three to complete before proceeding to Step 8 (merge).
 
 **Post progress when all complete:**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":5,"agent":"governance-agent","status":"complete","message":"All 3 validation agents finished","detail":"Patterns, standards, and security reports written to governance/output/"}' || true
+  -d '{"step":7,"agent":"governance-agent","status":"complete","message":"All 3 validation agents finished","detail":"Patterns, standards, and security reports written to governance/output/"}' || true
 ```
 
-### Step 6: Merge Reports (Incremental)
+### Step 8: Merge Reports (Incremental)
 
 Use the `merge-reports` skill. Process reports **one at a time** to avoid loading all three simultaneously. **Post progress before each phase** so the UI stays alive:
-
-**6a. Start merge:**
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"6a","agent":"governance-agent","status":"running","message":"Merging reports — extracting patterns scores","detail":"Reading patterns-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting patterns scores","detail":"Reading patterns-report.md to extract score, counts, and critical issues"}' || true
 ```
 
 1. Read patterns report -- extract score, counts, critical issues -- write to extract file -- release
 
-**6b. Standards extract:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"6b","agent":"governance-agent","status":"running","message":"Merging reports — extracting standards scores","detail":"Reading standards-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting standards scores","detail":"Reading standards-report.md to extract score, counts, and critical issues"}' || true
 ```
 
 2. Read standards report -- extract and append -- release
 
-**6c. Security extract:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"6c","agent":"governance-agent","status":"running","message":"Merging reports — extracting security scores","detail":"Reading security-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting security scores","detail":"Reading security-report.md to extract score, counts, and critical issues"}' || true
 ```
 
 3. Read security report -- extract and append -- release
 
-**6d. Calculate and write final report:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"6d","agent":"governance-agent","status":"running","message":"Calculating weighted score and writing governance report","detail":"Formula: patterns x0.30 + standards x0.30 + security x0.40"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Calculating weighted score and writing governance report","detail":"Formula: patterns x0.30 + standards x0.30 + security x0.40"}' || true
 ```
 
 4. Read the compact extract file -- calculate weighted score `(P*0.30 + S*0.30 + Sec*0.40)` -- write `<PAGE_ID>-governance-report.md`
 5. Delete the extract file
 
-**6 done:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":6,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns <PAT> x0.30 + standards <STD> x0.30 + security <SEC> x0.40"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns <PAT> x0.30 + standards <STD> x0.30 + security <SEC> x0.40"}' || true
 ```
 
-### Step 7: Generate HTML Dashboard (Incremental)
+### Step 9: Generate HTML Dashboard (Incremental)
 
 Use the `markdown-to-html` skill. Build the HTML file in phases -- one source report at a time. **Post progress before each phase:**
 
-**7a. Write HTML shell:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7a","agent":"governance-agent","status":"running","message":"Generating HTML — writing dashboard shell","detail":"Building header, score gauges, executive summary, and score breakdown"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — writing dashboard shell","detail":"Building header, score gauges, executive summary, and score breakdown"}' || true
 ```
 
 1. Read governance report (compact) -- write HTML shell with scores, summary, critical issues
 
-**7b. Append patterns findings:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7b","agent":"governance-agent","status":"running","message":"Generating HTML — appending patterns findings","detail":"Extracting patterns table rows into collapsible details section"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — appending patterns findings","detail":"Extracting patterns table rows into collapsible details section"}' || true
 ```
 
 2. Read patterns report -- extract findings table -- append as `<details>` block -- release
 
-**7c. Append standards findings:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7c","agent":"governance-agent","status":"running","message":"Generating HTML — appending standards findings","detail":"Extracting standards table rows into collapsible details section"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — appending standards findings","detail":"Extracting standards table rows into collapsible details section"}' || true
 ```
 
 3. Read standards report -- extract findings table -- append as `<details>` block -- release
 
-**7d. Append security findings:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7d","agent":"governance-agent","status":"running","message":"Generating HTML — appending security findings","detail":"Extracting security table rows into collapsible details section"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — appending security findings","detail":"Extracting security table rows into collapsible details section"}' || true
 ```
 
 4. Read security report -- extract findings table -- append as `<details>` block -- release
 5. Close HTML tags -- `governance/output/<PAGE_ID>-governance-report.html`
 
-**7 done:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":7,"agent":"governance-agent","status":"complete","message":"HTML dashboard generated","detail":"Report saved to governance/output/<PAGE_ID>-governance-report.html"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"complete","message":"HTML dashboard generated","detail":"Report saved to governance/output/<PAGE_ID>-governance-report.html"}' || true
 ```
 
-### Step 8: Post Report to Confluence Page and Notify Watcher
-
-**8a. Post to Confluence:**
+### Step 10: Post Report to Confluence Page and Notify Watcher
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"8a","agent":"governance-agent","status":"running","message":"Posting report to Confluence page","detail":"Adding styled governance report as page comment"}' || true
+  -d '{"step":10,"agent":"governance-agent","status":"running","message":"Posting report to Confluence page","detail":"Adding styled governance report as page comment"}' || true
 ```
 
 **Use the execute tool** to post the governance report as a comment on the original Confluence page:
@@ -341,15 +449,13 @@ print(result)
 "
 ```
 
-**8b. Notify watcher with final scores:**
-
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"8b","agent":"governance-agent","status":"running","message":"Sending final scores to dashboard","detail":"Score: <SCORE>/100 — patterns: <PAT>, standards: <STD>, security: <SEC>"}' || true
+  -d '{"step":10,"agent":"governance-agent","status":"running","message":"Sending final scores to dashboard","detail":"Score: <SCORE>/100 — patterns: <PAT>, standards: <STD>, security: <SEC>"}' || true
 ```
 
-**Then notify the watcher server with the final scores** so the UI shows the score card. Replace `<SCORE>`, `<PAT>`, `<STD>`, `<SEC>` with the actual computed values and `<RESULT>` with `pass` or `fail`:
+**Notify the watcher server with the final scores** so the UI shows the score card. Replace `<SCORE>`, `<PAT>`, `<STD>`, `<SEC>` with the actual computed values and `<RESULT>` with `pass` or `fail`:
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/report \
@@ -369,9 +475,11 @@ All outputs in `governance/output/`:
 - `<PAGE_ID>/metadata.json` - Page metadata
 - `<PAGE_ID>/attachments/` - Original files
 - `<PAGE_ID>/attachments/<name>.ast.json` - AST JSON per diagram
+- `<PAGE_ID>/page-claims.json` - LLM-extracted structured claims (cached)
+- `<PAGE_ID>/pre-score.json` - Deterministic scoring output (locked/unlocked)
 - `<PAGE_ID>-patterns-report.md` - Pattern validation
 - `<PAGE_ID>-standards-report.md` - Standards validation
 - `<PAGE_ID>-security-report.md` - Security validation
 - `<PAGE_ID>-governance-report.md` - Merged report
 - `<PAGE_ID>-governance-report.html` - HTML dashboard
-- Confluence page comment with full report (posted in Step 8)
+- Confluence page comment with full report (posted in Step 10)

@@ -46,7 +46,7 @@ Build the report on disk as you go -- never accumulate all findings in context.
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"standards-agent","status":"start","message":"Setting up standards validation","detail":"Reading page.md, loading AST files, and querying standards index for rules"}' || true
+  -d '{"step":"6.1","agent":"standards-agent","status":"start","message":"Setting up standards validation","detail":"Reading page.md, loading AST files, and querying standards index for rules"}' || true
 ```
 
 1. **Read skills** listed in the Skills Used section above
@@ -62,7 +62,7 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"standards-agent","status":"complete","message":"Setup complete — loaded <N> rules","detail":"Rules loaded from governance/indexes/standards/_all.rules.md"}' || true
+  -d '{"step":"6.1","agent":"standards-agent","status":"complete","message":"Setup complete — loaded <N> rules","detail":"Rules loaded from governance/indexes/standards/_all.rules.md"}' || true
 ```
 
 ### Phase 2: Validate and Append (per batch)
@@ -73,7 +73,7 @@ Process rules in **batches of 50** (or all at once if total rules + page.md < 80
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"standards-agent","status":"running","message":"Validating rules (batch <X> of <Y>)","detail":"Checking each rule against architecture document and AST structures"}' || true
+  -d '{"step":"6.1","agent":"standards-agent","status":"running","message":"Validating rules (batch <X> of <Y>)","detail":"Checking each rule against architecture document and AST structures"}' || true
 ```
 
 1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
@@ -88,7 +88,7 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"standards-agent","status":"running","message":"Rule validation complete","detail":"Found <E> errors, <W> warnings across all standard rules"}' || true
+  -d '{"step":"6.1","agent":"standards-agent","status":"running","message":"Rule validation complete","detail":"Found <E> errors, <W> warnings across all standard rules"}' || true
 ```
 
 ### Phase 3: External Skills
@@ -107,7 +107,7 @@ Run any additional GitHub Copilot-discovered skills against the document. Append
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"3.2","agent":"standards-agent","status":"complete","message":"Standards validation complete — score: <SCORE>/100","detail":"<PASS_COUNT> passed, <ERROR_COUNT> errors, <WARN_COUNT> warnings"}' || true
+  -d '{"step":"6.1","agent":"standards-agent","status":"complete","message":"Standards validation complete — score: <SCORE>/100","detail":"<PASS_COUNT> passed, <ERROR_COUNT> errors, <WARN_COUNT> warnings"}' || true
 ```
 
 ## Grounding Requirements (CRITICAL)

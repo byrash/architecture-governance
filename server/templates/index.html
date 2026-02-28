@@ -92,32 +92,174 @@
       background: var(--purple);
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
+    .hidden {
+      display: none;
     }
 
-    th,
-    td {
-      padding: 10px 14px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.875rem;
-      vertical-align: top;
+    /* ── Section headers ─────────────────────────────────── */
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      margin-top: 16px;
+      border-bottom: 2px solid var(--border);
     }
 
-    th {
-      background: var(--surface);
-      font-weight: 600;
-      color: var(--muted);
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      font-size: 0.75rem;
-      letter-spacing: 0.05em;
+      color: var(--muted);
     }
 
-    tr:hover {
-      background: #f3f4f6;
+    .section-empty {
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
     }
+
+    /* ── Category card ───────────────────────────────────── */
+
+    .cat-card {
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .cat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .cat-header:hover {
+      background: #eef1f5;
+    }
+
+    .cat-name {
+      font-weight: 600;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .cat-name .cat-icon {
+      font-size: 1.1rem;
+    }
+
+    .cat-stats {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .cat-stats .stat-pill {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+
+    .cat-body {
+      padding: 0;
+    }
+
+    .cat-body.collapsed {
+      display: none;
+    }
+
+    .cat-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 18px;
+      background: #fafbfc;
+      border-bottom: 1px solid #eaecef;
+      flex-wrap: wrap;
+    }
+
+    /* ── Page row (inside category) ──────────────────────── */
+
+    .page-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 12px 18px;
+      border-bottom: 1px solid #eaecef;
+      font-size: 0.85rem;
+    }
+
+    .page-row:last-child {
+      border-bottom: none;
+    }
+
+    .page-row:hover {
+      background: #f9fafb;
+    }
+
+    .page-id {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      min-width: 100px;
+      flex-shrink: 0;
+    }
+
+    .page-title {
+      font-weight: 500;
+      min-width: 160px;
+      flex: 1;
+    }
+
+    .page-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .page-actions {
+      display: flex;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    /* ── Validation card ─────────────────────────────────── */
+
+    .val-card {
+      margin: 12px 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .val-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .val-body {
+      padding: 14px 18px;
+    }
+
+    /* ── Shared UI atoms ─────────────────────────────────── */
 
     .status {
       display: inline-block;
@@ -157,28 +299,16 @@
       color: var(--red);
     }
 
-    .mode-tag {
+    .status-spinner {
       display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
-
-    .mode-index {
-      background: #ddf4ff;
-      color: var(--accent);
-    }
-
-    .mode-validate {
-      background: #f3e8ff;
-      color: var(--purple);
-    }
-
-    .actions {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      width: 12px;
+      height: 12px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
     }
 
     .btn-sm {
@@ -187,9 +317,10 @@
       border: 1px solid var(--border);
       background: white;
       cursor: pointer;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       text-decoration: none;
       color: var(--text);
+      white-space: nowrap;
     }
 
     .btn-sm:hover {
@@ -214,25 +345,16 @@
       background: #f3e8ff;
     }
 
-    .info-cell {
-      font-size: 0.82rem;
-      line-height: 1.6;
+    .btn-sm.accent {
+      color: var(--accent);
+      border-color: var(--accent);
     }
 
-    .info-cell .label {
-      color: var(--muted);
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
+    .btn-sm.accent:hover {
+      background: #ddf4ff;
     }
 
-    .info-cell .path {
-      font-family: 'SF Mono', Consolas, monospace;
-      font-size: 0.78rem;
-      color: var(--green);
-    }
-
-    .info-cell .cmd {
+    .cmd {
       display: inline-block;
       margin-top: 4px;
       padding: 4px 10px;
@@ -243,29 +365,29 @@
       background: #f3e8ff;
       border: 1px solid #d8b4fe;
       color: var(--purple);
-      max-width: 460px;
+      max-width: 480px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .info-cell .cmd:hover {
+    .cmd:hover {
       background: #ede5ff;
     }
 
-    .info-cell .cmd.copied {
+    .cmd.copied {
       background: #dafbe1;
       border-color: var(--green);
       color: var(--green);
     }
 
-    .info-cell .rules-badge {
+    .rules-badge {
       display: inline-block;
       padding: 1px 6px;
       border-radius: 4px;
       font-size: 0.72rem;
       font-weight: 600;
-      margin-left: 4px;
+      margin-left: 2px;
     }
 
     .sev-C {
@@ -288,16 +410,17 @@
       color: var(--accent);
     }
 
-    .empty {
-      text-align: center;
-      padding: 40px;
-      color: var(--muted);
-    }
-
     .error-msg {
       color: var(--red);
       font-size: 0.8rem;
       margin-top: 4px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
 
     .stale-banner {
@@ -313,15 +436,8 @@
       gap: 6px;
     }
 
-    .stale-banner .stale-icon {
-      font-size: 1rem;
-    }
+    /* ── Progress log ────────────────────────────────────── */
 
-    .hidden {
-      display: none;
-    }
-
-    /* Progress log */
     .progress-log {
       margin-top: 8px;
       padding: 10px 12px;
@@ -345,9 +461,17 @@
       margin-left: 4px;
     }
 
-    .log-icon-complete { color: #a6e3a1; }
-    .log-icon-start { color: #f9e2af; }
-    .log-icon-error { color: #f38ba8; }
+    .log-icon-complete {
+      color: #a6e3a1;
+    }
+
+    .log-icon-start {
+      color: #f9e2af;
+    }
+
+    .log-icon-error {
+      color: #f38ba8;
+    }
 
     .log-waiting {
       color: #6c7086;
@@ -360,6 +484,36 @@
       padding-left: 18px;
     }
 
+    .log-output {
+      margin: 4px 0 6px 18px;
+      font-size: 0.72rem;
+    }
+
+    .log-output summary {
+      cursor: pointer;
+      color: var(--accent, #1976d2);
+      font-size: 0.72rem;
+      user-select: none;
+    }
+
+    .log-output summary:hover {
+      text-decoration: underline;
+    }
+
+    .log-output-content {
+      background: var(--bg-secondary, #f6f8fa);
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-top: 4px;
+      font-size: 0.7rem;
+      line-height: 1.5;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     .agent-badge {
       display: inline-block;
       padding: 0 5px;
@@ -368,12 +522,27 @@
       font-weight: 600;
       margin-right: 4px;
     }
-    .agent-badge.patterns { background: #1e3a5f; color: #89b4fa; }
-    .agent-badge.standards { background: #1e3b2e; color: #a6e3a1; }
-    .agent-badge.security { background: #3b1e2e; color: #f38ba8; }
-    .agent-badge.governance { background: #2e2640; color: #cba6f7; }
 
-    /* Spinner */
+    .agent-badge.patterns {
+      background: #1e3a5f;
+      color: #89b4fa;
+    }
+
+    .agent-badge.standards {
+      background: #1e3b2e;
+      color: #a6e3a1;
+    }
+
+    .agent-badge.security {
+      background: #3b1e2e;
+      color: #f38ba8;
+    }
+
+    .agent-badge.governance {
+      background: #2e2640;
+      color: #cba6f7;
+    }
+
     .log-spinner {
       display: inline-block;
       width: 10px;
@@ -384,21 +553,15 @@
       animation: spin 0.8s linear infinite;
       vertical-align: middle;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
-    .status-spinner {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
     }
 
-    /* Score card */
+    /* ── Score card ───────────────────────────────────────── */
+
     .score-card {
       margin-top: 8px;
       padding: 10px 14px;
@@ -440,7 +603,8 @@
       font-weight: 500;
     }
 
-    /* Modal overlay */
+    /* ── Modal overlay ───────────────────────────────────── */
+
     .modal-overlay {
       display: none;
       position: fixed;
@@ -464,7 +628,7 @@
       max-height: 90vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0,0,0,0.05);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
       overflow: hidden;
     }
 
@@ -504,7 +668,7 @@
       color: var(--text);
     }
 
-    .modal-body > .report-root {
+    .modal-body>.report-root {
       margin: -24px;
     }
 
@@ -553,6 +717,30 @@
     .modal-body h3 {
       margin-top: 20px;
     }
+
+    /* ── Enrichment status pill ───────────────────────────── */
+
+    .enrich-pill {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+
+    .enrich-ready {
+      background: #dafbe1;
+      color: var(--green);
+    }
+
+    .enrich-needed {
+      background: #fff8c5;
+      color: var(--yellow);
+    }
+
+    .enrich-none {
+      background: #ffebe9;
+      color: var(--red);
+    }
   </style>
 </head>
 
@@ -561,8 +749,8 @@
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
       <div>
         <h1>Architecture Governance</h1>
-        <p class="subtitle" style="margin-bottom:0">Index Confluence pages into governance categories, or ingest and validate with governance agents.
-        </p>
+        <p class="subtitle" style="margin-bottom:0">Index Confluence pages into governance categories, or ingest and
+          validate with governance agents.</p>
       </div>
       <button onclick="resetAll()" class="btn-sm danger" style="white-space:nowrap;margin-top:4px"
         title="Remove all watched pages and delete output folders">Reset All</button>
@@ -582,23 +770,11 @@
       <button id="submitBtn" class="btn-validate" onclick="submitPage()">Validate Page</button>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Page ID</th>
-          <th>Title</th>
-          <th>Mode</th>
-          <th>Status</th>
-          <th>Details</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="pagesBody">
-        <tr>
-          <td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td>
-        </tr>
-      </tbody>
-    </table>
+    <!-- ═══ INDEXES SECTION ═══ -->
+    <div id="indexesSection"></div>
+
+    <!-- ═══ VALIDATION SECTION ═══ -->
+    <div id="validationSection"></div>
   </div>
 
   <!-- Modal -->
@@ -614,6 +790,15 @@
 
   <script>
     const API = '/api/pages';
+    const CATEGORIES = ['patterns', 'standards', 'security'];
+    const CAT_ICONS = { patterns: '\u{1F537}', standards: '\u{1F4CB}', security: '\u{1F512}' };
+    const CAT_COLORS = {
+      patterns: { bg: '#ddf4ff', text: '#0969da' },
+      standards: { bg: '#fff8c5', text: '#9a6700' },
+      security: { bg: '#f3e8ff', text: '#8250df' },
+    };
+
+    let _collapsed = {};
 
     function onModeChange() {
       const mode = document.getElementById('modeSelect').value;
@@ -630,7 +815,20 @@
       }
     }
 
-    // ── Modal ────────────────────────────────────────────────────────
+    // ── Utilities ──────────────────────────────────────────────────────
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function copyCmd(el) {
+      navigator.clipboard.writeText(el.textContent).then(() => {
+        el.classList.add('copied');
+        setTimeout(() => el.classList.remove('copied'), 1200);
+      });
+    }
+
+    // ── Modal ─────────────────────────────────────────────────────────
 
     function openModal(title, html) {
       document.getElementById('modalTitle').textContent = title;
@@ -645,35 +843,38 @@
 
     async function viewPreview(pageId) {
       const res = await fetch(`/pages/${pageId}/preview`);
-      if (!res.ok) {alert('Preview not available'); return;}
-      const html = await res.text();
-      openModal(`Page ${pageId} — Preview`, html);
+      if (!res.ok) { alert('Preview not available'); return; }
+      openModal(`Page ${pageId} — Preview`, await res.text());
     }
 
     async function viewReport(pageId) {
       const res = await fetch(`/api/pages/${pageId}/report`);
-      if (!res.ok) {alert('Report not available yet'); return;}
-      const html = await res.text();
-      openModal(`Page ${pageId} — Governance Report`, html);
+      if (!res.ok) { alert('Report not available yet'); return; }
+      openModal(`Page ${pageId} — Governance Report`, await res.text());
     }
 
-    async function viewRules(pageId) {
+    async function viewPageRules(pageId) {
       const res = await fetch(`/api/pages/${pageId}/rules`);
-      if (!res.ok) {alert('Rules not available'); return;}
-      const html = await res.text();
-      openModal(`Page ${pageId} — Extracted Rules`, html);
+      if (!res.ok) { alert('Rules not available'); return; }
+      openModal(`Page ${pageId} — Extracted Rules`, await res.text());
     }
 
-    document.addEventListener('keydown', e => {if (e.key === 'Escape') closeModal();});
+    async function viewIndexRules(cat) {
+      const res = await fetch(`/api/indexes/${cat}/rules`);
+      if (!res.ok) { alert('Consolidated rules not available — run index preparation first'); return; }
+      openModal(`${cat} — All Rules (_all.rules.md)`, await res.text());
+    }
 
-    // ── Progress rendering ───────────────────────────────────────────
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+    // ── Progress log renderer ─────────────────────────────────────────
 
     function renderProgressLog(logs, isActive) {
       if (!logs || !logs.length) {
         if (isActive) {
           return '<div class="progress-log"><span class="log-spinner"></span> <span class="log-waiting">Waiting for agent to start...</span></div>';
         }
-        return '<div class="progress-log"><span class="log-waiting">Waiting for agent to start...</span></div>';
+        return '';
       }
 
       const lastIdx = logs.length - 1;
@@ -701,7 +902,7 @@
         if (agentName) {
           const badgeCls = agentName.includes('patterns') ? 'patterns'
             : agentName.includes('standards') ? 'standards'
-            : agentName.includes('security') ? 'security' : 'governance';
+              : agentName.includes('security') ? 'security' : 'governance';
           badgeHtml = `<span class="agent-badge ${badgeCls}">${agentName}</span>`;
         }
 
@@ -712,6 +913,11 @@
         let html = `<div class="${entryCls}">${iconHtml} ${badgeHtml}${stepLabel}${msg}</div>`;
         if (l.detail) {
           html += `<div class="log-detail${isSubAgent ? ' sub-agent' : ''}">${l.detail}</div>`;
+        }
+        if (l.output) {
+          html += `<details class="log-output${isSubAgent ? ' sub-agent' : ''}"><summary>Show model output</summary>`;
+          html += `<pre class="log-output-content">${escapeHtml(typeof l.output === 'string' ? l.output : JSON.stringify(l.output, null, 2))}</pre>`;
+          html += `</details>`;
         }
         return html;
       }).join('');
@@ -727,201 +933,287 @@
       return `<div class="progress-log" id="progressScroll">${lines}${tail}</div>`;
     }
 
+    // ── Score card renderer ───────────────────────────────────────────
+
     function renderScoreCard(scores) {
       if (!scores) return '';
       const overall = scores.score || 0;
       const cls = overall >= 70 ? 'score-pass' : 'score-fail';
-      const label = overall >= 70 ? 'PASS' : 'FAIL';
-
       let pills = '';
-      if (scores.patterns !== undefined) {
+      if (scores.patterns !== undefined)
         pills += `<span class="score-pill" style="background:#ddf4ff;color:var(--accent)">Patterns: ${scores.patterns}</span>`;
-      }
-      if (scores.standards !== undefined) {
+      if (scores.standards !== undefined)
         pills += `<span class="score-pill" style="background:#fff8c5;color:var(--yellow)">Standards: ${scores.standards}</span>`;
-      }
-      if (scores.security !== undefined) {
+      if (scores.security !== undefined)
         pills += `<span class="score-pill" style="background:#f3e8ff;color:var(--purple)">Security: ${scores.security}</span>`;
-      }
-
       return `<div class="score-card">
-    <span class="score-overall ${cls}">${overall}/100 ${label}</span>
-    <div class="score-pills">${pills}</div>
-  </div>`;
+        <span class="score-overall ${cls}">${overall}/100 ${overall >= 70 ? 'PASS' : 'FAIL'}</span>
+        <div class="score-pills">${pills}</div>
+      </div>`;
     }
 
-    // ── Build details per status ─────────────────────────────────────
+    // ── Rules summary badges ──────────────────────────────────────────
 
-    function buildDetails(p) {
-      const st = p.status || 'pending';
-      const isIndex = p.mode === 'index';
+    function renderRulesBadges(rs) {
+      if (!rs) return '';
+      let html = `<span class="label" style="cursor:pointer">Rules: ${rs.total}</span>`;
+      if (rs.severity) {
+        const s = rs.severity;
+        if (s.C) html += `<span class="rules-badge sev-C">C:${s.C}</span>`;
+        if (s.H) html += `<span class="rules-badge sev-H">H:${s.H}</span>`;
+        if (s.M) html += `<span class="rules-badge sev-M">M:${s.M}</span>`;
+        if (s.L) html += `<span class="rules-badge sev-L">L:${s.L}</span>`;
+      }
+      return html;
+    }
 
-      if (st === 'pending') return '<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion…</span>';
-      if (st === 'ingesting') return '<span style="color:var(--yellow)"><span class="status-spinner"></span>Ingesting from Confluence...</span>';
-      if (st === 'error') return '';
+    // ══════════════════════════════════════════════════════════════════
+    // INDEXES SECTION RENDERER
+    // ══════════════════════════════════════════════════════════════════
 
-      // Index mode — ingested
-      if (st === 'ingested' && isIndex) {
-        let html = '';
-        if (p.change_detected) {
-          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-index</div>`;
-        } else if (p.stale_validation) {
-          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page updated on Confluence — re-indexed with fresh content</div>`;
+    function renderIndexesSection(pages, indexes) {
+      const catPages = {};
+      CATEGORIES.forEach(c => catPages[c] = []);
+      Object.values(pages).forEach(p => {
+        if (p.mode === 'index' && p.index && catPages[p.index]) {
+          catPages[p.index].push(p);
         }
-        if (p.index_path) {
-          html += `<div><span class="label">Indexed to</span><br><span class="path">${p.index_path}</span></div>`;
+      });
+
+      const hasAnyIndexPages = CATEGORIES.some(c => catPages[c].length > 0);
+      if (!hasAnyIndexPages) {
+        return `<div class="section-header"><span class="section-title">Indexes</span></div>
+                <div class="section-empty">No indexed pages yet. Add a page with mode "Index" above.</div>`;
+      }
+
+      let html = `<div class="section-header">
+        <span class="section-title">Indexes</span>
+        <span class="cmd" onclick="copyCmd(this)" title="Click to copy" style="margin:0">@governance-agent Prepare all indexes</span>
+      </div>`;
+
+      CATEGORIES.forEach(cat => {
+        const cp = catPages[cat];
+        if (!cp.length) return;
+
+        const idxInfo = (indexes && indexes[cat]) || {};
+        const isCollapsed = _collapsed[cat] === true;
+
+        // Aggregate stats
+        let totalRules = 0;
+        let pagesNeedLlm = 0;
+        let allEnriched = true;
+        let anyChanged = false;
+
+        cp.forEach(p => {
+          const rc = (p.rules_summary && p.rules_summary.total) || p.rules_count || 0;
+          totalRules += rc;
+          if (!p.llm_rules_at) pagesNeedLlm++;
+          if (!p.enriched_at) allEnriched = false;
+          if (p.change_detected) anyChanged = true;
+        });
+
+        const enrichLabel = allEnriched && totalRules > 0
+          ? '<span class="enrich-pill enrich-ready">enriched</span>'
+          : pagesNeedLlm > 0
+            ? `<span class="enrich-pill enrich-needed">LLM needed: ${pagesNeedLlm} page${pagesNeedLlm > 1 ? 's' : ''}</span>`
+            : '<span class="enrich-pill enrich-needed">enrichment needed</span>';
+
+        const isPreparing = idxInfo.status === 'preparing';
+        const indexProgress = idxInfo.progress_log || [];
+
+        const colors = CAT_COLORS[cat];
+
+        html += `<div class="cat-card">`;
+        html += `<div class="cat-header" onclick="toggleCat('${cat}')">
+          <span class="cat-name">
+            <span class="cat-icon">${CAT_ICONS[cat]}</span>
+            ${cat}
+            <span style="font-weight:400;font-size:0.82rem;color:var(--muted)">${cp.length} page${cp.length > 1 ? 's' : ''} &middot; ${totalRules} rules</span>
+            ${enrichLabel}
+            ${anyChanged ? '<span class="enrich-pill enrich-needed">page changes detected</span>' : ''}
+          </span>
+          <span style="font-size:0.9rem;color:var(--muted)">${isCollapsed ? '\u25B6' : '\u25BC'}</span>
+        </div>`;
+
+        html += `<div class="cat-body${isCollapsed ? ' collapsed' : ''}">`;
+
+        // Toolbar
+        const prepCmd = `@governance-agent Prepare index ${cat}`;
+        html += `<div class="cat-toolbar">`;
+        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${prepCmd}</span>`;
+        if (totalRules > 0) {
+          html += `<button class="btn-sm accent" onclick="viewIndexRules('${cat}')">All Rules</button>`;
         }
-        if (p.rules_summary) {
-          const rs = p.rules_summary;
-          html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none"><span class="label" style="cursor:pointer">Rules extracted: ${rs.total}</span>`;
-          if (rs.severity) {
-            const s = rs.severity;
-            if (s.C) html += `<span class="rules-badge sev-C">C:${s.C}</span>`;
-            if (s.H) html += `<span class="rules-badge sev-H">H:${s.H}</span>`;
-            if (s.M) html += `<span class="rules-badge sev-M">M:${s.M}</span>`;
-            if (s.L) html += `<span class="rules-badge sev-L">L:${s.L}</span>`;
+        html += `</div>`;
+
+        // Per-page rows
+        cp.forEach(p => {
+          const st = p.status || 'pending';
+          const hasRules = p.rules_summary && p.rules_summary.total > 0;
+          const hasLlm = !!p.llm_rules_at;
+          const canPreview = ['ingested', 'validating', 'validated'].includes(st);
+
+          html += `<div class="page-row">`;
+          html += `<span class="page-id">${p.page_id}</span>`;
+          html += `<span class="page-title">${p.title || '\u2014'}</span>`;
+
+          html += `<span class="page-meta">`;
+          html += `<span class="status status-${st}">${(st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>`;
+
+          if (hasRules) {
+            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${p.page_id}')" style="text-decoration:none">${renderRulesBadges(p.rules_summary)}</a>`;
+          } else if (p.rules_count > 0) {
+            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${p.page_id}')" style="text-decoration:none"><span class="label">Rules: ${p.rules_count}</span></a>`;
           }
-          html += '</a></div>';
-        } else if (p.rules_count > 0) {
-          html += `<div style="margin-top:6px"><a href="#" onclick="event.preventDefault();viewRules('${p.page_id}')" style="text-decoration:none;cursor:pointer"><span class="label">Rules: ${p.rules_count}</span></a></div>`;
-        }
-        if (p.enriched_at) {
-          html += `<div style="margin-top:6px"><span class="label" style="color:var(--green)">Rules enriched ${new Date(p.enriched_at).toLocaleDateString()}</span></div>`;
-        } else if (p.rules_summary && p.rules_summary.total > 0) {
-          const enrichCmd = `@governance-agent Enrich rules for ${p.index} index`;
-          html += `<div style="margin-top:8px"><span class="label">Enrich rules in VS Code Chat:</span><br>`;
-          html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${enrichCmd}</span></div>`;
-        }
-        return html;
-      }
 
-      // Validate mode — ingested (show command + waiting)
-      if (st === 'ingested' && !isIndex) {
-        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
-        let html = '';
-        if (p.change_detected) {
-          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-ingest</div>`;
-        } else if (p.stale_validation) {
-          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page re-ingested after Confluence update — please re-run governance agent</div>`;
+          if (hasLlm) {
+            html += `<span class="rules-badge" style="background:#dafbe1;color:#1a7f37">LLM \u2713</span>`;
+          } else if (st === 'ingested') {
+            html += `<span class="rules-badge" style="background:#fff8c5;color:#9a6700">LLM needed</span>`;
+          }
+
+          if (p.change_detected) {
+            html += `<span class="rules-badge" style="background:#fff8c5;color:#9a6700">\u26A0 changed</span>`;
+          }
+
+          if (p.error) {
+            html += `<span class="error-msg">${p.error}</span>`;
+          }
+          html += `</span>`;
+
+          html += `<span class="page-actions">`;
+          if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`;
+          if (hasRules || hasLlm) html += `<button class="btn-sm" onclick="viewPageRules('${p.page_id}')">Rules</button>`;
+
+          const showMarkReady = st === 'pending' || (p.change_detected && st === 'ingested');
+          if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`;
+          if (['ingested', 'error'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">Re-index</button>`;
+          html += `<button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>`;
+          html += `</span>`;
+
+          html += `</div>`;
+        });
+
+        // Index preparation progress log
+        if (indexProgress.length > 0 || isPreparing) {
+          html += `<div style="padding:8px 18px 14px">`;
+          html += `<span class="label">Index Preparation Progress</span>`;
+          html += renderProgressLog(indexProgress, isPreparing);
+          html += `</div>`;
         }
-        html += `<div><span class="label">Page ingested to</span><br><span class="path">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
-        html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
-        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-        html += renderProgressLog([], false);
-        return html;
-      }
 
-      // Validating — live progress (active spinner)
-      if (st === 'validating') {
-        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
-        let html = '';
-        html += `<div><span class="label">Run in VS Code Chat:</span> `;
-        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-        html += renderProgressLog(p.progress_log, true);
-        return html;
-      }
+        html += `</div>`; // cat-body
+        html += `</div>`; // cat-card
+      });
 
-      // Validated — show scores + report link (no spinner)
-      if (st === 'validated') {
-        let html = '';
-        if (p.change_detected) {
-          html += `<div class="stale-banner"><span class="stale-icon">\u26A0</span> Page changed on Confluence since validation — add <code>governance-ready</code> label or click Mark Ready to re-validate</div>`;
-        }
-        html += renderScoreCard(p.report_scores);
-        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
-        html += `<div style="margin-top:8px"><span class="label">Re-validate in VS Code Chat:</span><br>`;
-        html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
-        html += renderProgressLog(p.progress_log, false);
-        return html;
-      }
-
-      return '';
+      return html;
     }
 
-    // ── Page table rendering ─────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════
+    // VALIDATION SECTION RENDERER
+    // ══════════════════════════════════════════════════════════════════
 
-    function renderPages(data) {
-      const tbody = document.getElementById('pagesBody');
-      const entries = Object.values(data);
-      if (!entries.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No pages added yet. Enter a Page ID above.</td></tr>';
-        return;
+    function renderValidationSection(pages) {
+      const valPages = Object.values(pages).filter(p => p.mode === 'validate');
+
+      if (!valPages.length) {
+        return `<div class="section-header"><span class="section-title">Validation</span></div>
+                <div class="section-empty">No validation pages yet. Add a page with mode "Validate" above.</div>`;
       }
 
-      tbody.innerHTML = entries.map(p => {
+      let html = `<div class="section-header"><span class="section-title">Validation</span></div>`;
+
+      valPages.forEach(p => {
         const st = p.status || 'pending';
-        const isIndex = p.mode === 'index';
-
-        const modeLabel = isIndex
-          ? `<span class="mode-tag mode-index">index / ${p.index}</span>`
-          : `<span class="mode-tag mode-validate">validate</span>`;
-
+        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
         const canPreview = ['ingested', 'validating', 'validated'].includes(st);
-        const previewBtn = canPreview
-          ? `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`
-          : '';
 
-        const reportBtn = st === 'validated'
-          ? `<button class="btn-sm purple" onclick="viewReport('${p.page_id}')">Report</button>`
-          : '';
+        html += `<div class="val-card">`;
+        html += `<div class="val-header">`;
+        html += `<span style="display:flex;gap:10px;align-items:center">`;
+        html += `<code style="font-size:0.85rem">${p.page_id}</code>`;
+        html += `<span style="font-weight:500">${p.title || '\u2014'}</span>`;
+        html += `<span class="status status-${st}">${(st === 'validating' || st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>`;
+        html += `</span>`;
 
-        const hasRules = isIndex && (p.rules_count > 0 || p.rules_summary) && st === 'ingested';
-        const rulesBtn = hasRules
-          ? `<button class="btn-sm" onclick="viewRules('${p.page_id}')">Rules</button>`
-          : '';
-
-        const rerunLabel = isIndex ? 'Re-index' : 'Re-ingest';
-        const rerunBtn = ['ingested', 'error', 'validated'].includes(st)
-          ? `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">${rerunLabel}</button>`
-          : '';
-
+        html += `<span style="display:flex;gap:5px">`;
+        if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`;
+        if (st === 'validated') html += `<button class="btn-sm purple" onclick="viewReport('${p.page_id}')">Report</button>`;
         const showMarkReady = st === 'pending' || (p.change_detected && ['ingested', 'validated'].includes(st));
-        const markReadyBtn = showMarkReady
-          ? `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`
-          : '';
+        if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`;
+        if (['ingested', 'error', 'validated'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">Re-ingest</button>`;
+        html += `<button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>`;
+        html += `</span>`;
+        html += `</div>`; // val-header
 
-        let statusExtra = '';
-        if (p.error) statusExtra = `<div class="error-msg">${p.error}</div>`;
+        html += `<div class="val-body">`;
 
-        const details = buildDetails(p);
+        if (p.error) {
+          html += `<div class="error-msg">${p.error}</div>`;
+        }
 
-        return `<tr>
-      <td><code>${p.page_id}</code></td>
-      <td>${p.title || '\u2014'}</td>
-      <td>${modeLabel}</td>
-      <td><span class="status status-${st}">${(st === 'validating' || st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>${statusExtra}</td>
-      <td class="info-cell">${details}</td>
-      <td class="actions">
-        ${markReadyBtn}
-        ${rerunBtn}
-        ${previewBtn}
-        ${rulesBtn}
-        ${reportBtn}
-        <button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>
-      </td>
-    </tr>`;
-      }).join('');
+        if (p.change_detected) {
+          html += `<div class="stale-banner"><span>\u26A0</span> Page changed on Confluence — add <code>governance-ready</code> label or click Mark Ready to re-ingest</div>`;
+        } else if (p.stale_validation) {
+          html += `<div class="stale-banner"><span>\u26A0</span> Page re-ingested after Confluence update — please re-run governance agent</div>`;
+        }
 
-      // Auto-scroll any progress logs
-      document.querySelectorAll('#progressScroll').forEach(el => {
+        if (st === 'validated') {
+          html += renderScoreCard(p.report_scores);
+          html += `<div style="margin-top:10px"><span class="label">Re-validate in VS Code Chat:</span><br>`;
+          html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+          html += renderProgressLog(p.progress_log, false);
+        } else if (st === 'validating') {
+          html += `<div><span class="label">Running in VS Code Chat:</span> `;
+          html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+          html += renderProgressLog(p.progress_log, true);
+        } else if (st === 'ingested') {
+          html += `<div><span class="label">Page ingested to</span> <span style="font-family:'SF Mono',Consolas,monospace;font-size:0.78rem;color:var(--green)">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
+          html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
+          html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
+        } else if (st === 'pending') {
+          html += `<span style="color:var(--muted)">Waiting for <code>governance-ready</code> label to start ingestion\u2026</span>`;
+        }
+
+        html += `</div>`; // val-body
+        html += `</div>`; // val-card
+      });
+
+      return html;
+    }
+
+    // ── Main render ───────────────────────────────────────────────────
+
+    function renderAll(data) {
+      const pages = data.pages || data;
+      const indexes = data.indexes || {};
+      document.getElementById('indexesSection').innerHTML = renderIndexesSection(pages, indexes);
+      document.getElementById('validationSection').innerHTML = renderValidationSection(pages);
+
+      document.querySelectorAll('.progress-log').forEach(el => {
         el.scrollTop = el.scrollHeight;
       });
     }
 
-    // ── Actions ──────────────────────────────────────────────────────
+    function toggleCat(cat) {
+      _collapsed[cat] = !_collapsed[cat];
+      if (_lastData) renderAll(_lastData);
+    }
+
+    // ── Actions ───────────────────────────────────────────────────────
+
+    let _lastData = null;
 
     async function submitPage() {
       const pageId = document.getElementById('pageId').value.trim();
       if (!pageId) return;
       const mode = document.getElementById('modeSelect').value;
       const category = document.getElementById('categorySelect').value;
-
-      const body = {page_id: pageId, mode};
+      const body = { page_id: pageId, mode };
       if (mode === 'index') body.index = category;
-
       const res = await fetch(API, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -933,42 +1225,36 @@
     }
 
     async function removePage(pageId) {
-      await fetch(`${API}/${pageId}`, {method: 'DELETE'});
+      await fetch(`${API}/${pageId}`, { method: 'DELETE' });
     }
 
     async function resetAll() {
       if (!confirm('Remove all watched pages and clean output folders?\n\nThis cannot be undone.')) return;
-      await fetch(API, {method: 'DELETE'});
+      await fetch(API, { method: 'DELETE' });
     }
 
     async function ingestPage(pageId) {
-      await fetch(`${API}/${pageId}/ingest`, {method: 'POST'});
+      await fetch(`${API}/${pageId}/ingest`, { method: 'POST' });
     }
 
     async function markReady(pageId) {
-      const res = await fetch(`${API}/${pageId}/mark-ready`, {method: 'POST'});
+      const res = await fetch(`${API}/${pageId}/mark-ready`, { method: 'POST' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(err.detail || 'Could not add label');
       }
     }
 
-    function copyCmd(el) {
-      navigator.clipboard.writeText(el.textContent).then(() => {
-        el.classList.add('copied');
-        setTimeout(() => el.classList.remove('copied'), 1200);
-      });
-    }
-
-    // ── SSE — Server-Sent Events (no polling) ────────────────────────
+    // ── SSE — Server-Sent Events ──────────────────────────────────────
 
     function connectSSE() {
       const source = new EventSource('/api/events');
       source.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          renderPages(data);
-        } catch (e) { /* ignore parse errors on keepalive */}
+          _lastData = data;
+          renderAll(data);
+        } catch (e) { }
       };
       source.onerror = () => {
         source.close();
@@ -976,12 +1262,10 @@
       };
     }
 
-    // Force default mode on load (prevents browser form restoration)
     document.getElementById('modeSelect').value = 'validate';
     onModeChange();
 
-    // Initial fetch then switch to SSE
-    fetch(API).then(r => r.json()).then(renderPages).catch(() => { });
+    fetch(API).then(r => r.json()).then(d => { _lastData = d; renderAll(d); }).catch(() => { });
     connectSSE();
   </script>
 </body>

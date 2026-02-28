@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from server.store import WatcherStore, parse_rules_summary
+from server.store import CATEGORIES, WatcherStore, parse_rules_summary
 from server.watcher import (
     add_trigger_label,
     poll_loop,
@@ -118,7 +118,7 @@ async def sse_events(request: Request):
             while True:
                 if await request.is_disconnected():
                     break
-                data = json.dumps(store.list_pages(), default=str)
+                data = json.dumps(store.list_all(), default=str)
                 yield f"data: {data}\n\n"
                 last_version = store.version
                 try:
@@ -148,7 +148,7 @@ async def sse_events(request: Request):
 
 @app.get("/api/pages")
 async def list_pages():
-    return JSONResponse(content=store.list_pages())
+    return JSONResponse(content=store.list_all())
 
 
 @app.post("/api/pages")
@@ -256,6 +256,21 @@ async def mark_ready(page_id: str):
         raise HTTPException(status_code=503, detail=str(exc))
 
     return JSONResponse(content={"ok": True, "label_added": True})
+
+
+# ──────────────────────────────────────────────────────────────────
+# REST API — LLM Rules Extraction (webhook from governance-agent)
+# ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/pages/{page_id}/llm-rules")
+async def post_llm_rules(page_id: str, request: Request):
+    """Report that LLM text rule extraction + vetting is complete."""
+    info = store.get_page(page_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Page not watched")
+
+    store.update_page(page_id, llm_rules_at=datetime.now().isoformat())
+    return JSONResponse(content={"ok": True})
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -414,6 +429,64 @@ async def get_rules(page_id: str):
             return HTMLResponse(content=_md_to_html(path))
 
     raise HTTPException(status_code=404, detail="rules.md not found")
+
+
+
+# ──────────────────────────────────────────────────────────────────
+# REST API — Index-level operations
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/indexes/{category}/rules")
+async def get_index_rules(category: str):
+    """Return the consolidated _all.rules.md for an index category."""
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+    all_rules = Path("governance/indexes") / category / "_all.rules.md"
+    if not all_rules.exists():
+        raise HTTPException(status_code=404, detail=f"No _all.rules.md for {category}")
+    return HTMLResponse(content=_md_to_html(all_rules))
+
+
+@app.post("/api/indexes/{category}/progress")
+async def post_index_progress(category: str, request: Request):
+    """Accept index-preparation progress from the governance-agent."""
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+    body = await request.json()
+    store.append_index_progress(category, body)
+    return JSONResponse(content={"ok": True})
+
+
+@app.post("/api/indexes/{category}/prepared")
+async def index_prepared(category: str, request: Request):
+    """Mark an index as fully prepared (LLM extraction + merge + enrichment done)."""
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+    body = await request.json()
+
+    store.set_index_status(category, "prepared")
+    store.append_index_progress(category, {
+        "step": "done",
+        "agent": "governance-agent",
+        "status": "complete",
+        "message": f"Index preparation complete — {body.get('total_rules', '?')} rules",
+    })
+
+    enriched_at = datetime.now().isoformat()
+    for pid, info in store.list_pages().items():
+        if info.get("mode") == "index" and info.get("index") == category:
+            store.update_page(pid, llm_rules_at=enriched_at, enriched_at=enriched_at)
+
+    return JSONResponse(content={"ok": True})
+
+
+@app.post("/api/indexes/{category}/reset-progress")
+async def reset_index_progress(category: str):
+    """Clear the index progress log (for re-running preparation)."""
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+    store.clear_index_progress(category)
+    return JSONResponse(content={"ok": True})
 
 
 # ──────────────────────────────────────────────────────────────────

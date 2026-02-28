@@ -1,78 +1,88 @@
 ---
 name: rules-extract
 category: utility
-description: Deterministic CLI tool to extract structured governance rules from raw indexed documents into compact markdown-table format. Runs automatically during index-mode ingestion (zero LLM). Use when asked to extract rules, build rule index, or create .rules.md files from architecture documents.
+description: Governance rule extraction from indexed documents. Two layers — deterministic CLI extracts rules from diagrams (AST), LLM extracts rules from prose text and vets diagram-derived rules. Use when asked to extract rules, build rule index, or create .rules.md files.
 ---
 
-# Rules Extraction (Deterministic CLI)
+# Rules Extraction
 
-Rules extraction is a **deterministic CLI tool** (`python -m ingest.extract_rules`), not an agent. It runs automatically during index-mode ingestion (zero LLM). Use the CLI directly when you need to run rules extraction manually.
+Rule extraction has **two layers** that work together:
 
-## CLI Usage
+| Layer | Source | Tool | Output | Confidence |
+|-------|--------|------|--------|------------|
+| **Deterministic** | Diagrams (Draw.io, SVG, PlantUML AST) | `python -m ingest.extract_rules` | `rules.md` with `R-PROTO-*`, `R-ROLE-*`, etc. | 1.00 |
+| **LLM** | Page prose (text, tables, bullet points) | This skill (agent reads page.md) | `rules-llm.md` with `R-TEXT-*` | 0.70 |
+
+Both are merged into the final `rules.md` and `_all.rules.md` by the merge CLI.
+
+## Deterministic Layer (CLI — zero LLM)
+
+Runs automatically during ingestion. Only extracts from diagram AST files.
 
 ```bash
-# Batch: all pages in an index folder
 python -m ingest.extract_rules --folder governance/indexes/security/
-
-# Batch with refresh: only process stale pages
 python -m ingest.extract_rules --folder governance/indexes/security/ --refresh
-
-# Single page
 python -m ingest.extract_rules --page 123 --index security
-
-# All indexes
 python -m ingest.extract_rules --all
 ```
 
-## Input
+## LLM Layer (This Skill — Agent)
 
-Extract structured governance rules from raw architecture documents and save as compact `.rules.md` files for efficient validation.
+**You are the LLM layer.** Read `page.md` and extract rules that the deterministic layer cannot find — requirements written in prose, mandates in bullet points, controls in tables, compliance references in paragraphs.
 
-## Input
+### Input
 
-### Single-file mode
+- **Document path**: `governance/indexes/<category>/<PAGE_ID>/page.md`
+- **Existing diagram rules** (if any): `governance/indexes/<category>/<PAGE_ID>/rules.md`
+- **Category**: `patterns`, `standards`, `security`, or `general`
 
-- **Document path**: `governance/indexes/<category>/<PAGE_ID>/page.md` (provided by caller)
-- **Category**: `patterns`, `standards`, `security`, or `general` (provided by caller)
+### Output
 
-### Batch-folder mode
+Write to `governance/indexes/<category>/<PAGE_ID>/rules-llm.md` — the LLM-extracted rules file.
 
-- **Folder path**: any index directory containing `<PAGE_ID>/` subfolders with `page.md` files
-- **Category**: auto-detected from folder name or specified by caller
-- Process ALL `page.md` files in subfolders
+After processing all pages, run the merge:
 
-## Output
+```bash
+python -m ingest.extract_rules --merge-llm --folder governance/indexes/<category>/
+```
 
-### Single-file mode
+## What to Extract (LLM Layer)
 
-Write to `<PAGE_ID>/rules.md` inside the index (same subfolder as `page.md`).
+### Step 1: Extract text-based rules from prose
 
-### Batch-folder mode
+Read the page prose (everything outside embedded AST tables) and extract:
 
-1. **Per-page**: `<PAGE_ID>/rules.md` for each source `page.md` in subfolders
-2. **Consolidated**: `_all.rules.md` in the folder root -- merged, deduplicated, sorted by severity
+**Explicit Rules** — stated directly in text:
+- Requirements ("must", "shall", "required", "mandatory")
+- Prohibitions ("must not", "shall not", "forbidden", "no direct")
+- Security controls ("encryption at rest required", "OAuth2 mandatory")
+- Technology mandates ("must use REST", "no GraphQL", "gRPC only for internal")
+- Compliance references ("PCI-DSS requires", "SOC2 control", "GDPR Article 32")
+- SLA/SLO requirements ("99.9% uptime", "< 200ms p99 latency")
+- Documentation standards ("API versioning required", "all services must log")
 
-## What to Extract
+**Implicit Rules** — inferred from context:
+- Architectural constraints implied by the page structure
+- Integration patterns described in paragraphs
+- Data flow restrictions mentioned in text
+- Naming conventions described or demonstrated
 
-### Explicit Rules (stated in text)
-- Requirements, standards, controls, guidelines
-- Must/must-not statements
-- Compliance requirements
-- Technology mandates (e.g., "must use REST", "no GraphQL")
-- Security controls (e.g., "encryption at rest required")
+### Step 2: Vet and enhance diagram-derived rules
 
-### Implicit Rules (from diagrams and architecture)
-- Architectural constraints implied by AST tables (embedded diagrams)
-- Integration patterns (e.g., all external calls go through API gateway)
-- Technology choices shown in diagrams
-- Data flow restrictions
-- Component boundaries and isolation patterns
+If `rules.md` already exists with diagram-derived rules (`R-PROTO-*`, `R-ROLE-*`, etc.):
 
-### Conventions (from visual patterns)
-- Color coding conventions (e.g., dark blue = firm applications, green = application in context, orange = external vendors)
-- Node shape conventions (e.g., cylinders for databases, rectangles for services)
-- Naming conventions visible in diagrams
-- Layer/tier boundaries shown in subgraphs
+1. Read each existing rule
+2. Check if the page prose provides **additional context** for that rule
+3. If yes, write an enhanced version in `rules-llm.md` with:
+   - Same rule name but prefixed `[VET]` in the Condition column
+   - A richer Condition text incorporating the prose context
+   - Keep the original rule ID reference in Keywords (e.g., "vetted:R-PROTO-3f2a1b")
+   - Use ID prefix `R-VET-` and Conf `0.80`
+4. If the diagram rule is already well-described, skip it — don't duplicate
+
+### Step 3: Identify cross-reference rules
+
+Look for rules that span both text and diagrams — the page says "must use HTTPS" AND the diagram shows HTTPS edges. These are highest-confidence rules. Note them with `[CROSS]` in the Condition.
 
 ## Diagram Interpretation Guide
 
@@ -119,13 +129,13 @@ Extract these rules:
 
 ## Extraction Process
 
-1. **Read the full document** including all Mermaid code blocks
-2. **Scan text sections** for explicit rules, requirements, and standards
-3. **Parse each Mermaid diagram** for architectural constraints and conventions
-4. **Deduplicate** rules that appear in both text and diagrams
-5. **Classify** each rule with severity and required/recommended
-6. **Generate keywords** for each rule (used by validation agents for quick matching)
-7. **Write** the compact markdown table output
+1. **Read the full page.md** — prose sections, tables, bullet lists, code blocks, embedded AST tables
+2. **Read existing rules.md** if it exists — note which rules were already diagram-derived
+3. **Extract text-based rules** from prose (Step 1 above)
+4. **Vet diagram rules** against prose context (Step 2 above)
+5. **Classify** each new rule with severity and required/recommended
+6. **Generate keywords** — comma-separated, lowercase, for quick matching by scorer
+7. **Write** `rules-llm.md` in standard table format
 
 ## Severity Classification
 
@@ -138,102 +148,79 @@ Extract these rules:
 
 ## Output Format
 
-Rules are written to `<PAGE_ID>/rules.md` inside the index. Rules now include an **AST Condition** column when structural conditions are extracted from `*.ast.json` files (nodes, edges, groups).
+Write to `governance/indexes/<category>/<PAGE_ID>/rules-llm.md`:
 
 ```markdown
-# Rules - <source-filename>
+# LLM Rules - <PAGE_ID>
 
 > Source: <path> | Extracted: <timestamp> | Model: <actual model> | Category: <category> | Fingerprint: <md5-first-12-chars>
 
-| ID | Rule | Sev | Req | Keywords | Condition | AST Condition |
-|----|------|-----|-----|----------|-----------|---------------|
-| R-001 | <rule name> | C/H/M/L | Y/N | <comma-separated keywords> | <one-line condition> | <ast constraint or - > |
+| ID | Rule | Sev | Req | Keywords | Condition | AST Condition | Conf |
+|----|------|-----|-----|----------|-----------|---------------|------|
+| R-TEXT-a1b2c3 | <rule from prose> | C/H/M/L | Y/N | <keywords> | <condition> | - | 0.70 |
+| R-VET-d4e5f6 | <enhanced diagram rule> | H | Y | vetted:R-PROTO-xxx, <keywords> | [VET] <enriched condition> | <original ast condition> | 0.80 |
 
 ## Probe Questions
 
-These yes/no questions help validation agents check rules systematically. Generate one question per rule or group of related rules:
-
 | # | Question | Rule IDs |
 |---|----------|----------|
-| 1 | <yes/no question that checks whether the rule is satisfied> | R-001 |
-| 2 | <yes/no question for next rule or rule group> | R-002, R-003 |
+| 1 | <yes/no question checking if the rule is satisfied> | R-TEXT-a1b2c3 |
+| 2 | <yes/no question for next rule or rule group> | R-TEXT-d4e5f6, R-VET-g7h8i9 |
 ```
 
-### Probe Questions Guidelines
+### Rule ID conventions
 
-- Generate one probe question per rule, or group closely related rules into a single question
-- Questions must be answerable with YES/NO by examining the architecture document
-- Each question must reference the Rule ID(s) it validates
-- Phrase questions so that YES = rule satisfied, NO = rule violated
-- Example: Rule "External vendor isolation" → Question: "Does all external vendor traffic route through the API gateway?"
+| Prefix | Source | Confidence | Description |
+|--------|--------|------------|-------------|
+| `R-TEXT-` | LLM extracted from prose | 0.70 | New rule found in text only |
+| `R-VET-` | LLM vetting of diagram rule | 0.80 | Diagram rule enhanced with prose context |
+
+To generate the 6-char hash suffix: `md5(rule_name + "|" + condition)[:6]`
+
+### Column reference
+
+- **ID**: `R-TEXT-{hash6}` or `R-VET-{hash6}`
+- **Rule**: Short name (max 5 words)
+- **Sev**: C=Critical, H=High, M=Medium, L=Low
+- **Req**: Y=Required, N=Recommended
+- **Keywords**: Comma-separated, lowercase. For `R-VET-*` rules, include `vetted:<original-rule-id>`
+- **Condition**: One-line description. For vetted rules, prefix with `[VET]` and include prose context
+- **AST Condition**: Copy from original diagram rule for `R-VET-*`, `-` for `R-TEXT-*`
+- **Conf**: `0.70` for text-extracted, `0.80` for vetted
 
 ### Fingerprint
 
-The `Fingerprint` field contains the first 12 characters of the MD5 hash of the source `.md` file's first 64KB. This allows the staleness checker (`rules_check.py`) to detect when a source file has changed without relying only on file timestamps.
-
-**To compute the fingerprint** before writing the `.rules.md`:
+Compute: `md5(first 64KB of page.md)[:12]`
 
 ```bash
 python3 -c "import hashlib; print(hashlib.md5(open('<source-path>','rb').read(65536)).hexdigest()[:12])"
 ```
 
-The CLI tool computes this automatically.
+### Probe Questions
 
-Rules:
-- **ID**: Sequential `R-001`, `R-002`, etc.
-- **Rule**: Short descriptive name (max 5 words)
-- **Sev**: C=Critical, H=High, M=Medium, L=Low
-- **Req**: Y=Required, N=Recommended
-- **Keywords**: Comma-separated, lowercase, for quick matching
-- **Condition**: One-line description of what must be true
-- **AST Condition**: (optional) Structural constraint from `*.ast.json` (e.g., "node:X in group:Y", "edge:A->B exists")
+- One question per rule (or group closely related rules)
+- Questions must be answerable YES/NO from the architecture document
+- YES = rule satisfied, NO = rule violated
+- Example: Rule "OAuth2 required" → "Does the document specify OAuth2 as the authentication mechanism?"
 
-## Consolidation (Incremental -- after each file)
+## Merging (CLI — after LLM extraction)
 
-When processing multiple files, merge into `_all.rules.md` **immediately after each per-file extraction** rather than reading all files at the end. This keeps context usage bounded as indexes grow.
+After writing `rules-llm.md` for all pages, run the merge to combine deterministic + LLM rules:
 
-**After extracting each `<PAGE_ID>/rules.md`:**
-
-1. If `_all.rules.md` does not exist → create it with this file's rules as initial content
-2. If `_all.rules.md` exists → read it, then:
-   a. **Append** new rules from this file
-   b. **Deduplicate** rules with overlapping keywords AND similar conditions:
-      - If rule A (existing) and rule B (new) share 3+ keywords AND describe the same constraint → keep the more specific one
-      - Note both sources in the `Source` column
-   c. **Re-number** IDs sequentially: `R-001`, `R-002`, etc.
-   d. **Sort** by severity: Critical first, then High, Medium, Low
-   e. **Write** updated `_all.rules.md` back to disk
-3. **Release context**: the source document can be forgotten -- its rules are now in both `<filename>.rules.md` and `_all.rules.md`
-
-**Identify cross-document patterns**: rules that appear in 2+ source files represent widely-agreed governance principles and should be called out in the Cross-Document Patterns section
-
-### Consolidated output adds a `Source` column
-
-```markdown
-| ID | Rule | Sev | Req | Keywords | Condition | AST Condition | Source |
-|----|------|-----|-----|----------|-----------|---------------|--------|
-| R-001 | External vendor isolation | C | Y | vendor,gateway | Must route through gateway | - | 12345/rules.md, 67890/rules.md |
+```bash
+python -m ingest.extract_rules --merge-llm --folder governance/indexes/<category>/
 ```
 
-### Cross-document patterns section
-
-After the main table, add a summary of rules found across multiple sources:
-
-```markdown
-## Cross-Document Patterns
-
-| Rule Pattern | Appears In | Severity |
-|-------------|-----------|----------|
-| mTLS for internal services | auth-standards.md, microservices.md, api-guidelines.md | Critical |
-| API gateway routing | auth-standards.md, vendor-integration.md | Critical |
-```
-
-These cross-document patterns are the highest-confidence rules and should be prioritized by validation agents.
+This does:
+1. For each page: reads `rules.md` (deterministic) + `rules-llm.md` (LLM) → merged `rules.md`
+2. Deduplicates: if a `R-VET-*` rule covers the same condition as an existing `R-PROTO-*` etc., keeps both (the vet enhances, doesn't replace)
+3. Rebuilds `_all.rules.md` from all merged per-page `rules.md` files
 
 ## Important
 
-- Extract ALL rules, not just obvious ones -- diagrams often contain implicit rules
-- Keep the table compact -- every token saved here saves tokens across every future validation run
-- Preserve the raw `page.md` files unchanged -- `rules.md` files are derived artifacts
-- If a document has no extractable rules, write a `.rules.md` with an empty table and a note
-- In batch mode, continue processing remaining files if one file fails
+- Extract ALL rules, not just obvious ones — prose often contains critical requirements
+- Keep the table compact — every token saved here saves tokens across every future validation run
+- Write to `rules-llm.md`, NOT `rules.md` — the merge CLI combines them
+- If a page has no extractable text rules AND no diagram rules to vet, write a `rules-llm.md` with an empty table and a note
+- Always include the Fingerprint for staleness detection
+- For `R-VET-*` rules, always include `vetted:<original-rule-id>` in Keywords so the merge can track lineage

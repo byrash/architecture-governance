@@ -28,6 +28,8 @@ _CATEGORY_PREFIX = {
     "resilience": "RESIL",
     "fanout": "FANOUT",
     "cross": "CROSS",
+    "text": "TEXT",
+    "vet": "VET",
 }
 
 
@@ -891,6 +893,187 @@ def _parse_page_rules(rules_md: Path, page_id: str) -> List[Dict]:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Merge deterministic + LLM rules
+# ──────────────────────────────────────────────────────────────────
+
+def merge_llm_rules(index_dir: str, category: Optional[str] = None) -> Dict[str, Any]:
+    """Merge deterministic rules.md + LLM rules-llm.md into final rules.md per page.
+
+    For each page subfolder:
+    1. Read rules.md (deterministic, R-PROTO-*, R-ROLE-*, etc.)
+    2. Read rules-llm.md (LLM-extracted, R-TEXT-*, R-VET-*)
+    3. Combine, deduplicate, write merged rules.md
+    4. Rebuild _all.rules.md
+    """
+    idx = Path(index_dir)
+    if not idx.is_dir():
+        return {"error": f"{index_dir} not found"}
+
+    if category is None:
+        category = idx.name
+
+    results: Dict[str, Any] = {}
+    total_ast = 0
+    total_llm = 0
+    total_merged = 0
+
+    subfolders = sorted(
+        d for d in idx.iterdir()
+        if d.is_dir() and not d.name.startswith("_") and not d.name.startswith(".")
+    )
+
+    for subdir in subfolders:
+        page_id = subdir.name
+        rules_md = subdir / "rules.md"
+        rules_llm_md = subdir / "rules-llm.md"
+
+        ast_rules: List[Dict[str, Any]] = []
+        llm_rules: List[Dict[str, Any]] = []
+
+        if rules_md.exists():
+            ast_rules = _parse_page_rules(rules_md, page_id)
+
+        if rules_llm_md.exists():
+            llm_rules = _parse_page_rules(rules_llm_md, page_id)
+
+        if not ast_rules and not llm_rules:
+            results[page_id] = {"status": "empty", "ast": 0, "llm": 0, "merged": 0}
+            continue
+
+        merged = _merge_rule_sets(ast_rules, llm_rules)
+
+        source_path = subdir / "page.md"
+        write_rules_md(merged, page_id, subdir, category=category, source_path=source_path)
+
+        total_ast += len(ast_rules)
+        total_llm += len(llm_rules)
+        total_merged += len(merged)
+
+        results[page_id] = {
+            "status": "merged",
+            "ast": len(ast_rules),
+            "llm": len(llm_rules),
+            "merged": len(merged),
+        }
+        print(f"  {page_id}: {len(ast_rules)} AST + {len(llm_rules)} LLM → {len(merged)} merged",
+              file=sys.stderr)
+
+    all_path = _rebuild_all_rules(idx, category)
+    print(f"\n  Consolidated: {all_path}", file=sys.stderr)
+
+    return {
+        "index": index_dir,
+        "category": category,
+        "pages": results,
+        "totals": {"ast": total_ast, "llm": total_llm, "merged": total_merged},
+        "all_rules_path": str(all_path),
+    }
+
+
+def _merge_rule_sets(
+    ast_rules: List[Dict[str, Any]],
+    llm_rules: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge AST-derived and LLM-derived rules, deduplicating intelligently.
+
+    - AST rules always kept (highest confidence from structural analysis)
+    - R-VET-* rules kept alongside their parent AST rule (they enhance, not replace)
+    - R-TEXT-* rules kept unless they duplicate an existing AST rule
+    """
+    merged: List[Dict[str, Any]] = list(ast_rules)
+
+    ast_conditions = {
+        (r["rule"].lower(), r.get("ast_condition", "").lower())
+        for r in ast_rules
+    }
+    ast_keywords_sets = []
+    for r in ast_rules:
+        kws = {k.strip().lower() for k in r.get("keywords", "").split(",") if k.strip()}
+        ast_keywords_sets.append(kws)
+
+    for lr in llm_rules:
+        lr_name = lr["rule"].lower()
+        lr_cond = lr.get("ast_condition", "").lower()
+
+        if (lr_name, lr_cond) in ast_conditions:
+            continue
+
+        lr_kws = {k.strip().lower() for k in lr.get("keywords", "").split(",") if k.strip()}
+        lr_kws_clean = {k for k in lr_kws if not k.startswith("vetted:")}
+
+        is_duplicate = False
+        for ast_kws in ast_keywords_sets:
+            if len(lr_kws_clean & ast_kws) >= 3 and lr_name in {r["rule"].lower() for r in ast_rules}:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            merged.append(lr)
+
+    return merged
+
+
+# ──────────────────────────────────────────────────────────────────
+# Check for pages with 0 deterministic rules
+# ──────────────────────────────────────────────────────────────────
+
+def check_zero_rule_pages(index_dir: str) -> Dict[str, Any]:
+    """Find pages that have 0 deterministic rules and need LLM extraction."""
+    idx = Path(index_dir)
+    if not idx.is_dir():
+        return {"error": f"{index_dir} not found", "zero_pages": []}
+
+    zero_pages: List[Dict[str, str]] = []
+    has_rules_pages: List[str] = []
+
+    subfolders = sorted(
+        d for d in idx.iterdir()
+        if d.is_dir() and not d.name.startswith("_") and not d.name.startswith(".")
+    )
+
+    for subdir in subfolders:
+        page_md = subdir / "page.md"
+        rules_md = subdir / "rules.md"
+        if not page_md.exists():
+            continue
+
+        rule_count = 0
+        if rules_md.exists():
+            rule_count = _count_rules_in_md(rules_md)
+
+        if rule_count == 0:
+            zero_pages.append({
+                "page_id": subdir.name,
+                "page_path": str(page_md),
+                "reason": "no rules.md" if not rules_md.exists() else "0 rules in rules.md",
+            })
+        else:
+            has_rules_pages.append(subdir.name)
+
+    return {
+        "index": index_dir,
+        "zero_rule_pages": zero_pages,
+        "pages_with_rules": has_rules_pages,
+        "needs_llm_extraction": len(zero_pages) > 0,
+    }
+
+
+def _count_rules_in_md(rules_md: Path) -> int:
+    """Count rule rows in a rules.md table."""
+    count = 0
+    in_table = False
+    for line in rules_md.read_text(encoding="utf-8").split("\n"):
+        if line.startswith("| ID") or line.startswith("|-"):
+            in_table = True
+            continue
+        if in_table and line.startswith("| R-"):
+            count += 1
+        elif in_table and not line.startswith("|"):
+            in_table = False
+    return count
+
+
+# ──────────────────────────────────────────────────────────────────
 # CLI
 # ──────────────────────────────────────────────────────────────────
 
@@ -921,8 +1104,31 @@ Examples:
     parser.add_argument("--page", "-p", help="Single page ID")
     parser.add_argument("--index", "-i", help="Index name (for single page mode)")
     parser.add_argument("--category", "-c", help="Category override (auto-detected from folder name)")
+    parser.add_argument("--check-zero", action="store_true",
+                        help="List pages with 0 deterministic rules (need LLM extraction)")
+    parser.add_argument("--rebuild-all", action="store_true",
+                        help="Rebuild _all.rules.md from existing per-page rules.md files")
+    parser.add_argument("--merge-llm", action="store_true",
+                        help="Merge deterministic rules.md + LLM rules-llm.md per page")
 
     args = parser.parse_args()
+
+    if args.merge_llm and args.folder:
+        result = merge_llm_rules(args.folder, category=args.category)
+        print(json.dumps(result, indent=2))
+        return
+
+    if args.rebuild_all and args.folder:
+        idx = Path(args.folder)
+        category = args.category or idx.name
+        all_path = _rebuild_all_rules(idx, category)
+        print(f"Rebuilt: {all_path}", file=sys.stderr)
+        return
+
+    if args.check_zero and args.folder:
+        result = check_zero_rule_pages(args.folder)
+        print(json.dumps(result, indent=2))
+        return
 
     if args.all:
         indexes_dir = Path("governance/indexes")

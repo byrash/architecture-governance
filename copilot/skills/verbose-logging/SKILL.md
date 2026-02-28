@@ -18,7 +18,7 @@ Each agent has its own logging format. Find your agent name below and use the co
 
 After each step announcement below, also POST a progress update to the watcher server so the UI shows live progress. See the governance-agent instructions for the curl command format. Use `|| true` so failures are silent.
 
-### Pipeline Start
+### Pipeline Start (Validation Mode)
 ```
 ═══════════════════════════════════════════════════════════════════
 🏛️ GOVERNANCE-AGENT: Starting Governance Pipeline
@@ -26,14 +26,38 @@ After each step announcement below, also POST a progress update to the watcher s
    Page ID: <PAGE_ID>
    Model: <actual model running this agent>
    Pipeline Mode: Full Validation
-   Steps: Ingest → Patterns → Standards → Security → Merge → HTML
+   Steps: Verify → Claims → Score → Patterns → Standards → Security → Merge → HTML → Post
+═══════════════════════════════════════════════════════════════════
+```
+
+### Pipeline Start (Index Preparation — Single)
+```
+═══════════════════════════════════════════════════════════════════
+🏛️ GOVERNANCE-AGENT: Starting Index Preparation
+═══════════════════════════════════════════════════════════════════
+   Category: <CATEGORY>
+   Model: <actual model running this agent>
+   Pipeline Mode: Index Preparation
+   Steps: Discover → Extract (per page) → Merge → Enrich
+═══════════════════════════════════════════════════════════════════
+```
+
+### Pipeline Start (Index Preparation — All)
+```
+═══════════════════════════════════════════════════════════════════
+🏛️ GOVERNANCE-AGENT: Starting Index Preparation (All)
+═══════════════════════════════════════════════════════════════════
+   Categories: patterns, standards, security
+   Model: <actual model running this agent>
+   Pipeline Mode: Index Preparation (all indexes)
+   Steps: For each index → Discover → Extract → Merge → Enrich
 ═══════════════════════════════════════════════════════════════════
 ```
 
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step <N>/6 - <Action Description>
+🏛️ GOVERNANCE-AGENT: Step <N>/10 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Target Agent/Skill: <name>
@@ -43,7 +67,7 @@ After each step announcement below, also POST a progress update to the watcher s
 
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step <N>/6 - <Step Name> Complete
+🏛️ GOVERNANCE-AGENT: Step <N>/10 - <Step Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS / ❌ FAILED
    Output: <file path>
@@ -51,10 +75,10 @@ After each step announcement below, also POST a progress update to the watcher s
 ───────────────────────────────────────────────────
 ```
 
-### Merge Step (Step 5)
+### Merge Step (Step 8)
 ```
 ───────────────────────────────────────────────────
-🏛️ GOVERNANCE-AGENT: Step 5/6 - Merge Complete
+🏛️ GOVERNANCE-AGENT: Step 8/10 - Merge Complete
 ───────────────────────────────────────────────────
    Scores Extracted:
    - Patterns Score: <X>/100
