@@ -11,13 +11,13 @@ Runs per reference page, per index. Builds the knowledge base that validation re
 ```mermaid
 flowchart LR
     subgraph trigger [Trigger]
-        CLI["CLI or Watcher\nmake ingest PAGE_ID=X INDEX=security"]
+        CLI["CLI or Watcher<br/>make ingest PAGE_ID=X INDEX=security"]
     end
 
     subgraph step1 [Step 1: Ingest from Confluence]
         direction TB
         DL["Download page HTML + attachments"]
-        CASCADE["Deterministic Conversion Cascade\n1. Draw.io XML -> AST\n2. SVG XML -> AST\n3. Mermaid passthrough\n4. Markdown passthrough\n5. Code/NoFormat passthrough\n6. PlantUML -> AST\n7. SHA256 cache check"]
+        CASCADE["Deterministic Conversion Cascade<br/>1. Draw.io XML -> AST<br/>2. SVG XML -> AST<br/>3. Mermaid passthrough<br/>4. Markdown passthrough<br/>5. Code/NoFormat passthrough<br/>6. PlantUML -> AST<br/>7. SHA256 cache check"]
         EMBED["Embed AST tables into markdown"]
         DL --> CASCADE --> EMBED
     end
@@ -25,7 +25,7 @@ flowchart LR
     subgraph step2 [Step 2: Extract Deterministic Rules]
         direction TB
         AST_READ["Read .ast.json files"]
-        DERIVE["Derive structural rules\nfrom AST nodes/edges/groups"]
+        DERIVE["Derive structural rules<br/>from AST nodes/edges/groups"]
         AST_READ --> DERIVE
     end
 
@@ -33,24 +33,24 @@ flowchart LR
         direction TB
         READ_PROSE["Read page.md prose"]
         READ_EXISTING["Read existing rules.md"]
-        EXTRACT_TEXT["LLM: Extract text-based rules\nfrom prose, tables, bullets"]
-        VET["LLM: Vet diagram rules\nwith prose context"]
+        EXTRACT_TEXT["LLM: Extract text-based rules<br/>from prose, tables, bullets"]
+        VET["LLM: Vet diagram rules<br/>with prose context"]
         READ_PROSE --> EXTRACT_TEXT
         READ_EXISTING --> VET
     end
 
     subgraph step4 [Step 4: Merge Rules]
         direction TB
-        MERGE["Combine deterministic + LLM rules\nDeduplicate by content hash\nAssign confidence scores"]
-        CONSOLIDATE["Consolidate all pages\ninto single file"]
+        MERGE["Combine deterministic + LLM rules<br/>Deduplicate by content hash<br/>Assign confidence scores"]
+        CONSOLIDATE["Consolidate all pages<br/>into single file"]
         MERGE --> CONSOLIDATE
     end
 
     subgraph step5 ["Step 5: Enrich Rules (LLM)"]
         direction TB
         READ_ALL["Read _all.rules.md"]
-        GEN_ENRICH["LLM: For each rule generate\nsynonyms, regex patterns\nnegation patterns, deferral patterns\nco-occurrence groups, section hints"]
-        WRITE_BACK["Write enrichment columns\nback into rules.md tables"]
+        GEN_ENRICH["LLM: For each rule generate<br/>synonyms, regex patterns<br/>negation patterns, deferral patterns<br/>co-occurrence groups, section hints"]
+        WRITE_BACK["Write enrichment columns<br/>back into rules.md tables"]
         READ_ALL --> GEN_ENRICH --> WRITE_BACK
     end
 
@@ -84,26 +84,26 @@ All paths relative to `governance/indexes/<category>/` (e.g. `governance/indexes
 
 ```mermaid
 flowchart TB
-    CONF["Confluence Page\n(HTML + attachments)"]
+    CONF["Confluence Page<br/>(HTML + attachments)"]
 
     CONF -->|download| PAGE_MD["governance/indexes/security/PAGE_ID/page.md"]
     CONF -->|download| META["governance/indexes/security/PAGE_ID/metadata.json"]
     CONF -->|download| ATTACH["governance/indexes/security/PAGE_ID/attachments/diagram.drawio"]
 
-    ATTACH -->|"deterministic parse\n(no LLM)"| AST_JSON["governance/indexes/security/PAGE_ID/attachments/diagram.ast.json"]
+    ATTACH -->|"deterministic parse<br/>(no LLM)"| AST_JSON["governance/indexes/security/PAGE_ID/attachments/diagram.ast.json"]
 
     AST_JSON -->|"embed tables"| PAGE_MD
 
-    AST_JSON -->|"derive structural rules\n(no LLM)"| RULES_MD["governance/indexes/security/PAGE_ID/rules.md\n(R-PROTO-*, R-ROLE-*, R-ZONE-*)\nConf: 1.00"]
+    AST_JSON -->|"derive structural rules<br/>(no LLM)"| RULES_MD["governance/indexes/security/PAGE_ID/rules.md<br/>(R-PROTO-*, R-ROLE-*, R-ZONE-*)<br/>Conf: 1.00"]
 
-    PAGE_MD -->|"LLM reads prose"| RULES_LLM["governance/indexes/security/PAGE_ID/rules-llm.md\n(R-TEXT-*, R-VET-*)\nConf: 0.70 / 0.80"]
+    PAGE_MD -->|"LLM reads prose"| RULES_LLM["governance/indexes/security/PAGE_ID/rules-llm.md<br/>(R-TEXT-*, R-VET-*)<br/>Conf: 0.70 / 0.80"]
 
-    RULES_MD -->|merge| RULES_FINAL["governance/indexes/security/PAGE_ID/rules.md\n(MERGED: all rule types)"]
+    RULES_MD -->|merge| RULES_FINAL["governance/indexes/security/PAGE_ID/rules.md<br/>(MERGED: all rule types)"]
     RULES_LLM -->|merge| RULES_FINAL
 
-    RULES_FINAL -->|"consolidate all pages"| ALL_RULES["governance/indexes/security/_all.rules.md\n(ALL rules from ALL pages in this index)"]
+    RULES_FINAL -->|"consolidate all pages"| ALL_RULES["governance/indexes/security/_all.rules.md<br/>(ALL rules from ALL pages in this index)"]
 
-    ALL_RULES -->|"LLM enriches each rule"| ENRICHED["governance/indexes/security/rules-enriched.json\n(synonyms, patterns, hints for ALL rules)"]
+    ALL_RULES -->|"LLM enriches each rule"| ENRICHED["governance/indexes/security/rules-enriched.json<br/>(synonyms, patterns, hints for ALL rules)"]
 
     ENRICHED -->|"deterministic writeback"| RULES_FINAL
     ENRICHED -->|"deterministic writeback"| ALL_RULES
@@ -141,7 +141,7 @@ Runs per target page. Reads pre-built index artifacts and validates the target p
 ```mermaid
 flowchart LR
     subgraph trigger [Trigger]
-        GA["@governance-agent\nValidate page PAGE_ID"]
+        GA["@governance-agent<br/>Validate page PAGE_ID"]
     end
 
     subgraph step1 [Step 1: Verify Page]
@@ -153,8 +153,8 @@ flowchart LR
 
     subgraph step2 [Step 2: Verify Index Prerequisites]
         direction TB
-        CHECK_RULES["Check _all.rules.md exists\nin security, patterns, standards"]
-        CHECK_ENRICH["Check rules-enriched.json exists\nand is not stale"]
+        CHECK_RULES["Check _all.rules.md exists<br/>in security, patterns, standards"]
+        CHECK_ENRICH["Check rules-enriched.json exists<br/>and is not stale"]
         CHECK_RULES --> CHECK_ENRICH
     end
 
@@ -162,31 +162,31 @@ flowchart LR
         direction TB
         READ_TARGET["Read target page.md"]
         GET_FACTS["Get deterministic AST facts"]
-        LLM_CLAIMS["LLM: Extract structured claims\nper topic with status"]
+        LLM_CLAIMS["LLM: Extract structured claims<br/>per topic with status"]
         READ_TARGET --> LLM_CLAIMS
         GET_FACTS --> LLM_CLAIMS
     end
 
     subgraph step4 [Step 4: Deterministic Scoring]
         direction TB
-        LOAD["Load enriched rules from ALL indexes\n+ claims + AST facts + page text"]
-        EVAL["Evaluate each rule:\n1. AST condition\n2. Claims match\n3. Pattern match\n4. Co-occurrence\n5. Keyword fallback"]
-        LOCK["Lock definitive results\nFlag ambiguous for LLM"]
+        LOAD["Load enriched rules from ALL indexes<br/>+ claims + AST facts + page text"]
+        EVAL["Evaluate each rule:<br/>1. AST condition<br/>2. Claims match<br/>3. Pattern match<br/>4. Co-occurrence<br/>5. Keyword fallback"]
+        LOCK["Lock definitive results<br/>Flag ambiguous for LLM"]
         LOAD --> EVAL --> LOCK
     end
 
     subgraph steps57 ["Steps 5-7: Validation Agents (LLM on unlocked only)"]
         direction TB
-        PAT["patterns-agent\naccept locked, re-evaluate unlocked"]
-        STD["standards-agent\naccept locked, re-evaluate unlocked"]
-        SEC["security-agent\naccept locked, re-evaluate unlocked"]
+        PAT["patterns-agent<br/>accept locked, re-evaluate unlocked"]
+        STD["standards-agent<br/>accept locked, re-evaluate unlocked"]
+        SEC["security-agent<br/>accept locked, re-evaluate unlocked"]
     end
 
     subgraph steps810 [Steps 8-10: Reporting]
         direction TB
-        MERGE_R["Merge 3 reports\n30% + 30% + 40%"]
+        MERGE_R["Merge 3 reports<br/>30% + 30% + 40%"]
         HTML_R["Generate HTML dashboard"]
-        POST_R["Post to Confluence\nNotify watcher"]
+        POST_R["Post to Confluence<br/>Notify watcher"]
         MERGE_R --> HTML_R --> POST_R
     end
 
@@ -198,7 +198,7 @@ flowchart LR
 | Step | Reads | Produces | LLM? |
 |------|-------|----------|------|
 | 1 | `governance/output/<PAGE_ID>/page.md` | (nothing new) | No |
-| 2 | `governance/indexes/*/\_all.rules.md` | (nothing new) | No |
+| 2 | `governance/indexes/*/_all.rules.md` | (nothing new) | No |
 | 2 | `governance/indexes/*/rules-enriched.json` | (nothing new) | No |
 | 3 | `governance/output/<PAGE_ID>/page.md` | `governance/output/<PAGE_ID>/page-claims.json` | **Yes** (cached) |
 | 4 | `rules-enriched.json` (all indexes) | `governance/output/<PAGE_ID>/pre-score.json` | No |
@@ -216,9 +216,9 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph indexArtifacts [Pre-Built by Process 1]
-        ALL_SEC["security/_all.rules.md\n12 rules"]
-        ALL_PAT["patterns/_all.rules.md\n10 rules"]
-        ALL_STD["standards/_all.rules.md\n8 rules"]
+        ALL_SEC["security/_all.rules.md<br/>12 rules"]
+        ALL_PAT["patterns/_all.rules.md<br/>10 rules"]
+        ALL_STD["standards/_all.rules.md<br/>8 rules"]
         ENR_SEC["security/rules-enriched.json"]
         ENR_PAT["patterns/rules-enriched.json"]
         ENR_STD["standards/rules-enriched.json"]
@@ -226,25 +226,25 @@ flowchart TB
 
     subgraph targetPage [Target Page]
         PAGE["governance/output/PAGE_ID/page.md"]
-        AST_FACTS["AST facts extracted\nfrom page diagrams"]
+        AST_FACTS["AST facts extracted<br/>from page diagrams"]
     end
 
-    PAGE -->|"LLM reads page\n(cached)"| CLAIMS["governance/output/PAGE_ID/page-claims.json\n- topic: transport_security\n  status: implemented\n- topic: authentication\n  status: implemented\n- topic: rate_limiting\n  status: planned"]
+    PAGE -->|"LLM reads page<br/>(cached)"| CLAIMS["governance/output/PAGE_ID/page-claims.json<br/>- topic: transport_security<br/>  status: implemented<br/>- topic: authentication<br/>  status: implemented<br/>- topic: rate_limiting<br/>  status: planned"]
 
     AST_FACTS --> CLAIMS
 
-    ALL_SEC & ALL_PAT & ALL_STD -->|"30 rules total"| SCORER["Deterministic Scorer\n(Pure Python)"]
+    ALL_SEC & ALL_PAT & ALL_STD -->|"30 rules total"| SCORER["Deterministic Scorer<br/>(Pure Python)"]
     ENR_SEC & ENR_PAT & ENR_STD -->|"enrichment data"| SCORER
     CLAIMS -->|"structured claims"| SCORER
     PAGE -->|"raw text for regex"| SCORER
 
-    SCORER --> PRESCORE["governance/output/PAGE_ID/pre-score.json\n30 rules: 25 locked, 5 unlocked"]
+    SCORER --> PRESCORE["governance/output/PAGE_ID/pre-score.json<br/>30 rules: 25 locked, 5 unlocked"]
 
-    PRESCORE -->|"10 patterns rules\n8 locked + 2 unlocked"| PAT_REPORT["PAGE_ID-patterns-report.md\nLLM evaluates 2 rules only"]
-    PRESCORE -->|"8 standards rules\n7 locked + 1 unlocked"| STD_REPORT["PAGE_ID-standards-report.md\nLLM evaluates 1 rule only"]
-    PRESCORE -->|"12 security rules\n10 locked + 2 unlocked"| SEC_REPORT["PAGE_ID-security-report.md\nLLM evaluates 2 rules only"]
+    PRESCORE -->|"10 patterns rules<br/>8 locked + 2 unlocked"| PAT_REPORT["PAGE_ID-patterns-report.md<br/>LLM evaluates 2 rules only"]
+    PRESCORE -->|"8 standards rules<br/>7 locked + 1 unlocked"| STD_REPORT["PAGE_ID-standards-report.md<br/>LLM evaluates 1 rule only"]
+    PRESCORE -->|"12 security rules<br/>10 locked + 2 unlocked"| SEC_REPORT["PAGE_ID-security-report.md<br/>LLM evaluates 2 rules only"]
 
-    PAT_REPORT --> GOV_REPORT["PAGE_ID-governance-report.md\nWeighted: 30% + 30% + 40%"]
+    PAT_REPORT --> GOV_REPORT["PAGE_ID-governance-report.md<br/>Weighted: 30% + 30% + 40%"]
     STD_REPORT --> GOV_REPORT
     SEC_REPORT --> GOV_REPORT
 
