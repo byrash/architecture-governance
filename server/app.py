@@ -297,6 +297,9 @@ async def post_progress(page_id: str, request: Request):
     """Accept a progress log entry from the governance-agent.
 
     On the first entry, auto-transitions status from ingested -> validating.
+    When a terminal entry arrives (step 'done', or message containing
+    'validation complete' / 'score'), auto-transitions to 'validated' and
+    reads report scores from disk if available.
     """
     info = store.get_page(page_id)
     if not info:
@@ -305,10 +308,62 @@ async def post_progress(page_id: str, request: Request):
     body = await request.json()
     store.append_progress(page_id, body)
 
-    if info.get("status") == "ingested":
+    current_status = info.get("status")
+
+    if current_status == "ingested":
         store.update_page(page_id, status="validating", stale_validation=False)
 
+    elif current_status == "validating":
+        step = str(body.get("step", ""))
+        status = str(body.get("status", ""))
+        message = str(body.get("message", "")).lower()
+        is_terminal = (
+            step == "done"
+            or ("validation complete" in message)
+            or ("score" in message and status == "complete")
+            or (step.startswith("8") and status == "complete")
+        )
+        if is_terminal:
+            _auto_complete_validation(page_id, body)
+
     return JSONResponse(content={"ok": True})
+
+
+def _auto_complete_validation(page_id: str, body: dict) -> None:
+    """Try to transition a page to 'validated' using report data from disk."""
+    scores = body.get("scores") or body.get("report_scores")
+
+    if not scores:
+        for pattern in [
+            Path("governance/output") / f"{page_id}-governance-report.md",
+            Path("governance/output") / page_id / "governance-report.md",
+        ]:
+            if pattern.exists():
+                scores = _extract_scores_from_report(pattern)
+                if scores:
+                    break
+
+    updates: dict = {
+        "status": "validated",
+        "validated_at": datetime.now().isoformat(),
+        "change_detected": False,
+    }
+    if scores:
+        updates["report_scores"] = scores
+
+    store.update_page(page_id, **updates)
+
+
+def _extract_scores_from_report(path: Path) -> dict | None:
+    """Best-effort score extraction from a markdown governance report."""
+    try:
+        content = path.read_text(encoding="utf-8")
+        score_match = re.search(r"(\d{1,3})\s*/\s*100", content)
+        if score_match:
+            return {"score": int(score_match.group(1))}
+    except Exception:
+        pass
+    return None
 
 
 @app.get("/api/pages/{page_id}/progress")

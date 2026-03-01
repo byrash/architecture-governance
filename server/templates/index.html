@@ -1252,9 +1252,12 @@
 
     // ── SSE — Server-Sent Events ──────────────────────────────────────
 
+    let _sseAlive = 0;
+
     function connectSSE() {
       const source = new EventSource('/api/events');
       source.onmessage = (event) => {
+        _sseAlive = Date.now();
         try {
           const data = JSON.parse(event.data);
           _lastData = data;
@@ -1267,11 +1270,19 @@
       };
     }
 
+    function pollFallback() {
+      const stale = Date.now() - _sseAlive > 20000;
+      if (stale) {
+        fetch(API).then(r => r.json()).then(d => { _lastData = d; renderAll(d); }).catch(() => { });
+      }
+    }
+
     document.getElementById('modeSelect').value = 'validate';
     onModeChange();
 
     fetch(API).then(r => r.json()).then(d => { _lastData = d; renderAll(d); }).catch(() => { });
     connectSSE();
+    setInterval(pollFallback, 15000);
   </script>
 </body>
 
