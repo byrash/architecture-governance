@@ -86,13 +86,26 @@ async def index(request: Request):
 
 
 def _md_to_html(path: Path) -> str:
-    """Render a markdown file to HTML. Falls back to <pre> if markdown lib missing."""
+    """Render a markdown file to HTML with full extension support."""
     md_content = path.read_text(encoding="utf-8")
     try:
-        import markdown
-        return markdown.markdown(md_content, extensions=["tables", "fenced_code", "toc"])
+        import markdown as _md
+        return _md.markdown(
+            md_content,
+            extensions=[
+                "tables",
+                "fenced_code",
+                "toc",
+                "sane_lists",
+                "md_in_html",
+            ],
+        )
     except ImportError:
-        return f"<pre>{md_content}</pre>"
+        import html as _html
+        return f"<pre>{_html.escape(md_content)}</pre>"
+    except Exception:
+        import html as _html
+        return f"<pre>{_html.escape(md_content)}</pre>"
 
 
 _SAFE_PAGE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -552,6 +565,12 @@ async def get_rules(page_id: str):
         candidates.append(Path(index_path) / "rules.md")
     candidates.append(Path("governance/output") / page_id / "rules.md")
 
+    idx = info.get("index")
+    if idx:
+        idx_dir = Path("governance/indexes") / idx
+        candidates.append(idx_dir / "_all.rules.md")
+        candidates.append(idx_dir / "rules.md")
+
     for path in candidates:
         if path.exists():
             return HTMLResponse(content=_md_to_html(path))
@@ -566,13 +585,15 @@ async def get_rules(page_id: str):
 
 @app.get("/api/indexes/{category}/rules")
 async def get_index_rules(category: str):
-    """Return the consolidated _all.rules.md for an index category."""
+    """Return the consolidated rules for an index category."""
     if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
-    all_rules = Path("governance/indexes") / category / "_all.rules.md"
-    if not all_rules.exists():
-        raise HTTPException(status_code=404, detail=f"No _all.rules.md for {category}")
-    return HTMLResponse(content=_md_to_html(all_rules))
+    idx_dir = Path("governance/indexes") / category
+    for name in ("_all.rules.md", "rules.md"):
+        candidate = idx_dir / name
+        if candidate.exists():
+            return HTMLResponse(content=_md_to_html(candidate))
+    raise HTTPException(status_code=404, detail=f"No rules found for {category}")
 
 
 @app.post("/api/indexes/{category}/progress")
