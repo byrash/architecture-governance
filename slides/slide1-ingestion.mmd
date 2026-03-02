@@ -1,0 +1,30 @@
+flowchart LR
+    classDef input fill:#6c757d,color:#fff
+    classDef det fill:#2b7bba,color:#fff
+    classDef llm fill:#e8833a,color:#fff
+    classDef output fill:#3a9d5c,color:#fff
+
+    CONF["Confluence<br/>Reference Pages"]:::input
+
+    DL["Download, Parse<br/>Diagrams to AST"]:::det
+
+    DET["Deterministic<br/>Rule Extraction"]:::det
+    LLM1["LLM: Text<br/>Rule Extraction"]:::llm
+
+    PAGE["Per-Page rules.md<br/>(Page 1, Page 2, ...)"]:::det
+
+    CONSOLIDATE["Consolidate into<br/>_all.rules.md"]:::det
+
+    LLM2["LLM: Enrichment<br/>Synonyms, Patterns, Hints"]:::llm
+
+    subgraph kb [Knowledge Base Output]
+        ALL["_all.rules.md"]:::output
+        ENRICHED["rules-enriched.json"]:::output
+    end
+
+    CONF --> DL
+    DL --> DET --> PAGE
+    DL --> LLM1 --> PAGE
+    PAGE -->|"Bubble up"| CONSOLIDATE --> LLM2
+    LLM2 --> ALL
+    LLM2 --> ENRICHED

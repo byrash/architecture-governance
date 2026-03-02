@@ -397,3 +397,87 @@ governance/output/
 ├── <PAGE_ID>-governance-report.md
 └── <PAGE_ID>-governance-report.html
 ```
+
+---
+
+## Executive Summary Diagrams
+
+### Slide 1 — Ingestion: Building the Knowledge Base
+
+```mermaid
+flowchart LR
+    classDef input fill:#6c757d,color:#fff
+    classDef det fill:#2b7bba,color:#fff
+    classDef llm fill:#e8833a,color:#fff
+    classDef output fill:#3a9d5c,color:#fff
+
+    CONF["Confluence<br/>Reference Pages"]:::input
+
+    DL["Download, Parse<br/>Diagrams to AST"]:::det
+
+    DET["Deterministic<br/>Rule Extraction"]:::det
+    LLM1["LLM: Text<br/>Rule Extraction"]:::llm
+
+    PAGE["Per-Page rules.md<br/>(Page 1, Page 2, ...)"]:::det
+
+    CONSOLIDATE["Consolidate into<br/>_all.rules.md"]:::det
+
+    LLM2["LLM: Enrichment<br/>Synonyms, Patterns, Hints"]:::llm
+
+    subgraph kb [Knowledge Base Output]
+        ALL["_all.rules.md"]:::output
+        ENRICHED["rules-enriched.json"]:::output
+    end
+
+    CONF --> DL
+    DL --> DET --> PAGE
+    DL --> LLM1 --> PAGE
+    PAGE -->|"Bubble up"| CONSOLIDATE --> LLM2
+    LLM2 --> ALL
+    LLM2 --> ENRICHED
+```
+
+### Slide 2 — Validation: Scoring a Target Page
+
+```mermaid
+flowchart LR
+    classDef input fill:#6c757d,color:#fff
+    classDef det fill:#2b7bba,color:#fff
+    classDef llm fill:#e8833a,color:#fff
+    classDef output fill:#3a9d5c,color:#fff
+
+    TARGET["Confluence<br/>Target Page"]:::input
+
+    DL["Download, Parse<br/>Diagrams to AST"]:::det
+
+    subgraph kb [Knowledge Base Sources]
+        SEC_KB["Security Index"]:::input
+        PAT_KB["Patterns Index"]:::input
+        STD_KB["Standards Index"]:::input
+    end
+
+    CLAIMS["LLM: Extract Claims<br/>(Cached)"]:::llm
+
+    SCORER["Deterministic Scorer<br/>Pure Python<br/>80-90% Rules Locked"]:::det
+
+    subgraph agents [LLM Validation Agents]
+        PAT["Patterns Agent<br/>Weight: 30%"]:::llm
+        STD["Standards Agent<br/>Weight: 30%"]:::llm
+        SEC["Security Agent<br/>Weight: 40%"]:::llm
+    end
+
+    MERGE["Merge Weighted<br/>Reports"]:::det
+
+    REPORT["Governance Report"]:::output
+    HTML["HTML Dashboard"]:::output
+    CONFPOST["Confluence Comment"]:::output
+
+    TARGET --> DL
+    DL -->|"page.md"| CLAIMS
+    DL -->|"AST facts"| SCORER
+    CLAIMS --> SCORER
+    SEC_KB & PAT_KB & STD_KB --> SCORER
+    SCORER -->|"Unlocked only<br/>10-20% of rules"| PAT & STD & SEC
+    PAT & STD & SEC --> MERGE
+    MERGE --> REPORT --> HTML --> CONFPOST
+```
