@@ -19,12 +19,12 @@ flowchart LR
     SCORER["Deterministic Scorer<br/>Pure Python<br/>80-90% Rules Locked"]:::det
 
     subgraph agents [LLM Validation Agents]
-        PAT["Patterns Agent<br/>Weight: 30%"]:::llm
-        STD["Standards Agent<br/>Weight: 30%"]:::llm
-        SEC["Security Agent<br/>Weight: 40%"]:::llm
+        PAT["Patterns Agent"]:::llm
+        STD["Standards Agent"]:::llm
+        SEC["Security Agent"]:::llm
     end
 
-    MERGE["Merge Weighted<br/>Reports"]:::det
+    MERGE["Merge Reports<br/>Action Summary"]:::det
 
     REPORT["Governance Report"]:::output
     HTML["HTML Dashboard"]:::output

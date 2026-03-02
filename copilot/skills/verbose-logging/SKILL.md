@@ -71,7 +71,6 @@ After each step announcement below, also POST a progress update to the watcher s
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS / ❌ FAILED
    Output: <file path>
-   Score: <X>/100 (if applicable)
 ───────────────────────────────────────────────────
 ```
 
@@ -80,15 +79,12 @@ After each step announcement below, also POST a progress update to the watcher s
 ───────────────────────────────────────────────────
 🏛️ GOVERNANCE-AGENT: Step 8/10 - Merge Complete
 ───────────────────────────────────────────────────
-   Scores Extracted:
-   - Patterns Score: <X>/100
-   - Standards Score: <X>/100
-   - Security Score: <X>/100
-   Calculation:
-   - Patterns: <X> × 0.30 = <Y>
-   - Standards: <X> × 0.30 = <Y>
-   - Security: <X> × 0.40 = <Y>
-   OVERALL SCORE: <TOTAL>/100
+   Action Summary:
+   ├── Compliant:   <N>
+   ├── Verify:      <N>
+   ├── Investigate: <N>
+   ├── Plan:        <N>
+   └── Remediate:   <N>
 ───────────────────────────────────────────────────
 ```
 
@@ -99,18 +95,18 @@ After each step announcement below, also POST a progress update to the watcher s
 ═══════════════════════════════════════════════════════════════════
    Page ID: <PAGE_ID>
    Model: <actual model that ran this agent>
-   RESULTS:
-   ├── Patterns:  <X>/100 (weight: 30%)
-   ├── Standards: <X>/100 (weight: 30%)
-   ├── Security:  <X>/100 (weight: 40%)
-   └── OVERALL:   <TOTAL>/100
-   STATUS: ✅ PASS (≥70) / ❌ FAIL (<70)
+   ACTION SUMMARY:
+   ├── Compliant:   <N>
+   ├── Verify:      <N>
+   ├── Investigate: <N>
+   ├── Plan:        <N>
+   └── Remediate:   <N>
    OUTPUT FILES:
-   ├── Page:     governance/output/<PAGE_ID>/page.md
-   ├── Patterns: governance/output/<PAGE_ID>-patterns-report.md
+   ├── Page:      governance/output/<PAGE_ID>/page.md
+   ├── Patterns:  governance/output/<PAGE_ID>-patterns-report.md
    ├── Standards: governance/output/<PAGE_ID>-standards-report.md
-   ├── Security: governance/output/<PAGE_ID>-security-report.md
-   ├── Merged:   governance/output/<PAGE_ID>-governance-report.md
+   ├── Security:  governance/output/<PAGE_ID>-security-report.md
+   ├── Merged:    governance/output/<PAGE_ID>-governance-report.md
    └── Dashboard: governance/output/<PAGE_ID>-governance-report.html
 ═══════════════════════════════════════════════════════════════════
 ```
@@ -146,7 +142,7 @@ After each step announcement below, also POST a progress update to the watcher s
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-🔷 PATTERNS-AGENT: Phase <N>/4 - <Action Description>
+🔷 PATTERNS-AGENT: Phase <N>/5 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -156,7 +152,7 @@ After each step announcement below, also POST a progress update to the watcher s
 
 ```
 ───────────────────────────────────────────────────
-🔷 PATTERNS-AGENT: Phase <N>/4 - <Phase Name> Complete
+🔷 PATTERNS-AGENT: Phase <N>/5 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -171,12 +167,12 @@ After each step announcement below, also POST a progress update to the watcher s
    Document: governance/output/<PAGE_ID>/page.md
    Model: <actual model that ran this agent>
    RESULTS:
-   ├── Status: <PASS/FAIL>
-   ├── Score: <X>/100
    ├── Patterns checked: <count>
-   │   ├── PASS:  <count>
-   │   ├── ERROR: <count>
-   │   └── WARN:  <count>
+   │   ├── Compliant:   <count>
+   │   ├── Verify:      <count>
+   │   ├── Investigate: <count>
+   │   ├── Plan:        <count>
+   │   └── Remediate:   <count>
    ├── Anti-patterns: <count detected>
    └── Skills used: <list of discovered skills>
    OUTPUT:
@@ -215,7 +211,7 @@ After each step announcement below, also POST a progress update to the watcher s
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-📋 STANDARDS-AGENT: Phase <N>/4 - <Action Description>
+📋 STANDARDS-AGENT: Phase <N>/5 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -225,7 +221,7 @@ After each step announcement below, also POST a progress update to the watcher s
 
 ```
 ───────────────────────────────────────────────────
-📋 STANDARDS-AGENT: Phase <N>/4 - <Phase Name> Complete
+📋 STANDARDS-AGENT: Phase <N>/5 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -240,12 +236,12 @@ After each step announcement below, also POST a progress update to the watcher s
    Document: governance/output/<PAGE_ID>/page.md
    Model: <actual model that ran this agent>
    RESULTS:
-   ├── Status: <PASS/FAIL>
-   ├── Score: <X>/100
    ├── Standards checked: <count>
-   │   ├── PASS:  <count>
-   │   ├── ERROR: <count>
-   │   └── WARN:  <count>
+   │   ├── Compliant:   <count>
+   │   ├── Verify:      <count>
+   │   ├── Investigate: <count>
+   │   ├── Plan:        <count>
+   │   └── Remediate:   <count>
    └── Skills used: <list of discovered skills>
    OUTPUT:
    └── Report: governance/output/<PAGE_ID>-standards-report.md
@@ -283,7 +279,7 @@ After each step announcement below, also POST a progress update to the watcher s
 ### Step Start/Complete
 ```
 ───────────────────────────────────────────────────
-🔒 SECURITY-AGENT: Phase <N>/5 - <Action Description>
+🔒 SECURITY-AGENT: Phase <N>/6 - <Action Description>
 ───────────────────────────────────────────────────
    Action: <what is being done>
    Tool: <tool name>
@@ -293,7 +289,7 @@ After each step announcement below, also POST a progress update to the watcher s
 
 ```
 ───────────────────────────────────────────────────
-🔒 SECURITY-AGENT: Phase <N>/5 - <Phase Name> Complete
+🔒 SECURITY-AGENT: Phase <N>/6 - <Phase Name> Complete
 ───────────────────────────────────────────────────
    Status: ✅ SUCCESS
    Results: <summary>
@@ -308,13 +304,12 @@ After each step announcement below, also POST a progress update to the watcher s
    Document: governance/output/<PAGE_ID>/page.md
    Model: <actual model that ran this agent>
    RESULTS:
-   ├── Status: <PASS/FAIL>
-   ├── Score: <X>/100
-   ├── Risk Level: <LOW/MEDIUM/HIGH/CRITICAL>
    ├── Controls checked: <count>
-   │   ├── PASS:  <count>
-   │   ├── ERROR: <count>
-   │   └── WARN:  <count>
+   │   ├── Compliant:   <count>
+   │   ├── Verify:      <count>
+   │   ├── Investigate: <count>
+   │   ├── Plan:        <count>
+   │   └── Remediate:   <count>
    ├── Vulnerabilities: <count or "none">
    └── Skills used: <list of discovered skills>
    OUTPUT:

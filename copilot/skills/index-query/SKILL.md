@@ -108,8 +108,8 @@ When `_all.rules.md` grows large, loading it entirely alongside the architecture
    f. Repeat until ALL rules have been processed
 5. **Finalize report**:
    a. Scan the report file for status column values -- count PASS / ERROR / WARN rows
-   b. Calculate score
-   c. Update the header placeholders with final score and status
+   b. Map findings to action tiers (compliant, verify, investigate, plan, remediate)
+   c. Update the header placeholders with the action summary
    d. Append remaining sections (errors summary, recommendations)
 
 ### Key principles

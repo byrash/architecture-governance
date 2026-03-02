@@ -7,10 +7,11 @@ In index mode, also extracts structural governance rules from AST data
 and produces per-page rules.md + consolidated _all.rules.md.
 """
 
-from ingest.confluence_ingest import ingest_page, post_report_to_confluence
+from ingest.confluence_ingest import IngestError, ingest_page, post_report_to_confluence
 from ingest.extract_rules import extract_and_write_rules, extract_rules_from_ast
 
 __all__ = [
+    "IngestError",
     "ingest_page",
     "post_report_to_confluence",
     "extract_and_write_rules",

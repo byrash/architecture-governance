@@ -21,6 +21,8 @@ governance/watcher_state.json
 
 # Python
 __pycache__/
+.pytest_cache/
+.mypy_cache/
 *.py[cod]
 *$py.class
 *.so

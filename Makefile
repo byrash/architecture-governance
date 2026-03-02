@@ -264,7 +264,7 @@ test:
 	@python3 -m pytest tests/ -v
 
 test-parsers:
-	@python3 -m pytest tests/test_diagram_ast.py tests/test_drawio_to_ast.py tests/test_svg_to_ast.py tests/test_plantuml_to_ast.py -v
+	@python3 -m pytest tests/test_diagram_ast.py tests/test_drawio_to_ast.py tests/test_plantuml_to_ast.py -v
 
 test-scoring:
 	@python3 -m pytest tests/test_score_rules.py tests/test_extract_rules.py -v

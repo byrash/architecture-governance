@@ -12,7 +12,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 def _fingerprint(path: Path) -> str:
@@ -110,12 +110,10 @@ def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description="Rule enrichment helper")
     parser.add_argument("--check", action="store_true", help="Check if enrichment is stale")
-    parser.add_argument("--index", "-i", required=True, help="Index name (security, patterns, standards)")
+    parser.add_argument("--index", "-i", help="Index name (security, patterns, standards)")
     parser.add_argument("--schema", action="store_true", help="Print JSON schema template")
     parser.add_argument("--validate", help="Validate an existing rules-enriched.json")
     args = parser.parse_args()
-
-    index_dir = Path("governance/indexes") / args.index
 
     if args.schema:
         print(json.dumps(enrichment_schema_template(), indent=2))
@@ -130,6 +128,11 @@ def main() -> int:
             return 1
         print("  Valid", file=sys.stderr)
         return 0
+
+    if not args.index:
+        parser.error("--index is required for --check")
+
+    index_dir = Path("governance/indexes") / args.index
 
     if args.check:
         result = check_staleness(index_dir)

@@ -244,7 +244,7 @@ flowchart TB
     PRESCORE -->|"8 standards rules<br/>7 locked + 1 unlocked"| STD_REPORT["PAGE_ID-standards-report.md<br/>LLM evaluates 1 rule only"]
     PRESCORE -->|"12 security rules<br/>10 locked + 2 unlocked"| SEC_REPORT["PAGE_ID-security-report.md<br/>LLM evaluates 2 rules only"]
 
-    PAT_REPORT --> GOV_REPORT["PAGE_ID-governance-report.md<br/>Weighted: 30% + 30% + 40%"]
+    PAT_REPORT --> GOV_REPORT["PAGE_ID-governance-report.md<br/>Action Summary"]
     STD_REPORT --> GOV_REPORT
     SEC_REPORT --> GOV_REPORT
 
@@ -322,23 +322,25 @@ The scoring system uses a hybrid approach that freezes LLM variance at extractio
    -> ABSENT_ERROR (0, locked)
 ```
 
-### Category Weights
+### Action Tiers
 
-| Category | Weight |
-|----------|--------|
-| Patterns | 30% |
-| Standards | 30% |
-| Security | 40% |
+Each rule is assigned an action tier instead of a numeric score:
 
-**Thresholds:** PASS >= 70, WARN 50-69, FAIL < 50
+| Action | Meaning |
+|--------|---------|
+| **Compliant** | No action needed — rule is satisfied |
+| **Verify** | Likely compliant — confirm in next review |
+| **Investigate** | Ambiguous evidence — needs human review |
+| **Plan** | Acknowledged gap — schedule on roadmap |
+| **Remediate** | Violation or missing — implement or fix |
 
 ### Expected Impact
 
 | Metric | Without Scoring Pipeline | With Scoring Pipeline |
 |--------|------------------------|----------------------|
-| Score variance per run | ~15-25 points | ~1-3 points |
-| % rules scored by LLM | 100% | ~10-20% |
-| Re-score unchanged page | Full LLM run (~3-5 min) | Instant (cached, Python only) |
+| Result variance per run | ~15-25 points | ~1-3 tier differences |
+| % rules evaluated by LLM | 100% | ~10-20% |
+| Re-evaluate unchanged page | Full LLM run (~3-5 min) | Instant (cached, Python only) |
 
 ---
 
@@ -461,12 +463,12 @@ flowchart LR
     SCORER["Deterministic Scorer<br/>Pure Python<br/>80-90% Rules Locked"]:::det
 
     subgraph agents [LLM Validation Agents]
-        PAT["Patterns Agent<br/>Weight: 30%"]:::llm
-        STD["Standards Agent<br/>Weight: 30%"]:::llm
-        SEC["Security Agent<br/>Weight: 40%"]:::llm
+        PAT["Patterns Agent"]:::llm
+        STD["Standards Agent"]:::llm
+        SEC["Security Agent"]:::llm
     end
 
-    MERGE["Merge Weighted<br/>Reports"]:::det
+    MERGE["Merge Reports<br/>Action Summary"]:::det
 
     REPORT["Governance Report"]:::output
     HTML["HTML Dashboard"]:::output

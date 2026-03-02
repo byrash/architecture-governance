@@ -581,18 +581,6 @@ def convert_plantuml_to_ast(puml_content: str) -> DiagramAST:
     return ast
 
 
-def extract_plantuml_blocks(text: str) -> List[str]:
-    """Extract PlantUML blocks from text (both @startuml and fenced code blocks)."""
-    blocks = []
-
-    for m in re.finditer(r'@startuml\b.*?\n(.*?)@enduml', text, re.DOTALL | re.IGNORECASE):
-        blocks.append(m.group(1))
-
-    for m in re.finditer(r'```(?:plantuml|puml)\s*\n(.*?)```', text, re.DOTALL | re.IGNORECASE):
-        blocks.append(m.group(1))
-
-    return blocks
-
 
 # ─── CLI ──────────────────────────────────────────────────────────
 

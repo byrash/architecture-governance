@@ -16,12 +16,12 @@ Extracts structured claims from a page.md document, producing a per-topic assess
 
 ## Workflow
 
-1. **Check staleness**: Run `python -m ingest.extract_claims --check --page-id {PAGE_ID}` to see if extraction is needed
-2. **Get AST facts**: Run `python -m ingest.extract_claims --facts --page-id {PAGE_ID}` to get deterministic AST facts (protocols, roles, zones)
-3. **Read page**: Read `governance/output/{PAGE_ID}/page.md`
+1. **Check staleness**: Run `python -m ingest.extract_claims --check --page-id <PAGE_ID>` to see if extraction is needed
+2. **Get AST facts**: Run `python -m ingest.extract_claims --facts --page-id <PAGE_ID>` to get deterministic AST facts (protocols, roles, zones)
+3. **Read page**: Read `governance/output/<PAGE_ID>/page.md`
 4. **Read topic list**: Read the rule names from all `_all.rules.md` files in governance/indexes/ to know what topics to look for
 5. **Generate claims**: For each topic, produce a structured claim
-6. **Write output**: Write `governance/output/{PAGE_ID}/page-claims.json`
+6. **Write output**: Write `governance/output/<PAGE_ID>/page-claims.json`
 
 ## Per-Topic Claim Schema
 

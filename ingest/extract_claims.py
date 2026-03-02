@@ -158,14 +158,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Page claims extraction helper")
     parser.add_argument("--check", action="store_true", help="Check if claims are stale")
     parser.add_argument("--facts", action="store_true", help="Extract AST facts (deterministic)")
-    parser.add_argument("--page-id", "-p", required=True, help="Page ID")
+    parser.add_argument("--page-id", "-p", help="Page ID (required for --check, --facts)")
     parser.add_argument("--schema", action="store_true", help="Print JSON schema template")
     parser.add_argument("--validate", help="Validate an existing page-claims.json")
-    parser.add_argument("--force", action="store_true", help="Force re-extraction")
     args = parser.parse_args()
 
     if args.schema:
-        print(json.dumps(claims_schema_template(args.page_id), indent=2))
+        page_id = args.page_id or "EXAMPLE"
+        print(json.dumps(claims_schema_template(page_id), indent=2))
         return 0
 
     if args.validate:
@@ -177,6 +177,9 @@ def main() -> int:
             return 1
         print("  Valid", file=sys.stderr)
         return 0
+
+    if not args.page_id:
+        parser.error("--page-id is required for --check and --facts")
 
     if args.facts:
         page_dir = Path("governance/output") / args.page_id

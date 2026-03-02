@@ -26,7 +26,8 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ## Input/Output
 - **Index**: `governance/indexes/security/` (per-page subfolders with `_all.rules.md`)
 - **Document**: `governance/output/<PAGE_ID>/page.md` (provided by caller)
-- **Output**: `governance/output/<PAGE_ID>/security-report.md`
+- **Pre-score**: `governance/output/<PAGE_ID>/pre-score.json` (deterministic scoring from Step 4)
+- **Output**: `governance/output/<PAGE_ID>-security-report.md`
 
 ## Skills Used
 
@@ -53,8 +54,12 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 2. **Read the architecture document** (`page.md`) -- stays in context throughout
 3. **Read all `*.ast.json` files** from `governance/output/<PAGE_ID>/attachments/` -- load AST structures for structural rule validation
 4. **Load rules** from `governance/indexes/security/` using the `index-query` skill (reads `_all.rules.md`)
-5. **Write report shell** to `governance/output/<PAGE_ID>/security-report.md`:
-   - Header with placeholders: `**Score**: _TBD_`, `**Status**: _TBD_`, `**Risk Level**: _TBD_`
+5. **Read `pre-score.json`** from `governance/output/<PAGE_ID>/pre-score.json` and partition rules for this agent's category (`security`):
+   - **Locked rules** (`"locked": true`) -- deterministic scoring is final. Accept the `action` and `status` as-is. These will be copied directly into the report without LLM re-evaluation.
+   - **Unlocked rules** (`"locked": false`, statuses: `WEAK_EVIDENCE` or `CONTRADICTION`) -- deterministic scoring was inconclusive. These require full LLM validation against page.md and AST files.
+   - If `pre-score.json` does not exist, treat ALL rules as unlocked (full LLM evaluation).
+6. **Write report shell** to `governance/output/<PAGE_ID>-security-report.md`:
+   - Header with placeholders: `**Action Summary**: _TBD_`, `**Risk Level**: _TBD_`
    - Skills Used table
    - "Security Controls Checked" table header row (no data rows yet)
    - "Vulnerability Scan" table header row (no data rows yet)
@@ -66,33 +71,48 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -d '{"step":"7.1","agent":"security-agent","status":"complete","message":"Setup complete — loaded <N> rules","detail":"Rules loaded from governance/indexes/security/_all.rules.md"}' || true
 ```
 
-### Phase 2: Validate and Append (per batch)
+### Phase 2: Emit Locked Rules
 
-Process rules in **batches of 50** (or all at once if total rules + page.md < 80K tokens):
+Locked rules from `pre-score.json` have deterministic verdicts that cannot be overridden. For each locked rule in the `security` category:
+
+1. Copy the rule's `action`, `status`, and `rule_id` directly into the Security Controls Checked table
+2. Set the finding status from the pre-score action: `compliant` → PASS, `verify` → PASS, `investigate`/`plan` → WARN, `remediate` → ERROR
+3. In the Evidence column, note: "Deterministic pre-score: `<STATUS>`"
+
+**Post progress:**
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"7.1","agent":"security-agent","status":"running","message":"Emitting <N> locked rules from pre-score","detail":"Locked rules have deterministic verdicts — copying directly to report"}' || true
+```
+
+### Phase 3: Validate Unlocked Rules (per batch)
+
+Process **only unlocked rules** in batches of 50 (or all at once if total unlocked rules + page.md < 80K tokens):
 
 **Post progress at start of each batch:**
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7.1","agent":"security-agent","status":"running","message":"Validating rules (batch <X> of <Y>)","detail":"Checking each rule against architecture document and AST structures"}' || true
+  -d '{"step":"7.1","agent":"security-agent","status":"running","message":"Validating unlocked rules (batch <X> of <Y>)","detail":"LLM re-evaluating rules where deterministic scoring was inconclusive"}' || true
 ```
 
-1. Read the next batch of rules from `_all.rules.md` (using line offset/limit)
+1. Read the next batch of unlocked rules from `_all.rules.md` (using line offset/limit, filtering to only rule IDs listed as unlocked in `pre-score.json`)
 2. Validate each rule against page.md and loaded ASTs:
    - If rule has **Condition**: check text/AST table content in page.md
    - If rule has **AST Condition**: check against loaded AST structures (node IDs, edges, subgraphs, group membership)
 3. **Append finding rows** directly to the Security Controls Checked table in the report file on disk
 4. Release the batch from context
-5. Repeat until ALL rules processed
+5. Repeat until ALL unlocked rules processed
 
 **Post progress (validation complete):**
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7.1","agent":"security-agent","status":"running","message":"Rule validation complete","detail":"Found <E> errors, <W> warnings across all security rules"}' || true
+  -d '{"step":"7.1","agent":"security-agent","status":"running","message":"Rule validation complete","detail":"<LOCKED> locked (pre-scored), <UNLOCKED> unlocked (LLM-evaluated). Found <E> errors, <W> warnings"}' || true
 ```
 
-### Phase 3: Vulnerability Scan
+### Phase 4: Vulnerability Scan
 
 **Post progress:**
 ```bash
@@ -103,16 +123,20 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 
 Scan page.md for hardcoded credentials, sensitive data exposure, etc. Append results to the Vulnerability Scan table in the report file.
 
-### Phase 4: External Skills
+### Phase 5: External Skills
 
 Run any additional GitHub Copilot-discovered skills against the document. Append their findings to the Discovered Skill Findings section of the report file. Collate using the rules in the Collating Discovered Skill Output section below.
 
-### Phase 5: Finalize
+### Phase 6: Finalize
 
 1. **Scan the report file** for status values only -- count PASS, ERROR, WARN, CRITICAL rows (do NOT re-read evidence text)
-2. Calculate score: `100 - (errors × weight) - (warnings × weight)`
+2. Map each finding to an action tier:
+   - **PASS** → `compliant`
+   - **WARN** → `verify` (low severity) or `investigate` (medium severity)
+   - **ERROR** → `plan` (high severity) or `remediate` (critical severity)
+   - **CRITICAL** → `remediate`
 3. Determine risk level: CRITICAL if any critical control missing or vulnerability found
-4. **Update the header** placeholders: replace `_TBD_` score, status, and risk level with actual values
+4. **Update the header** placeholders: replace `_TBD_` action summary and risk level with actual values
 5. **Append** the Errors summary, Recommendations, and Completion sections
 6. Announce completion
 
@@ -120,7 +144,7 @@ Run any additional GitHub Copilot-discovered skills against the document. Append
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":"7.1","agent":"security-agent","status":"complete","message":"Security validation complete — score: <SCORE>/100","detail":"Risk level: <RISK>. <PASS_COUNT> passed, <ERROR_COUNT> errors, <WARN_COUNT> warnings, <VULN_COUNT> vulnerabilities"}' || true
+  -d '{"step":"7.1","agent":"security-agent","status":"complete","message":"Security validation complete — <REMEDIATE> remediate, <INVESTIGATE> investigate, <PLAN> plan, <VERIFY> verify, <COMPLIANT> compliant","detail":"Risk level: <RISK>. <TOTAL> rules checked, <VULN_COUNT> vulnerabilities"}' || true
 ```
 
 ## Grounding Requirements (CRITICAL)
@@ -161,8 +185,7 @@ Write the report in this exact format:
 ```markdown
 # Security Validation Report
 
-**Status**: PASS | FAIL
-**Score**: X/100
+**Action Summary**: <N> compliant · <N> verify · <N> investigate · <N> plan · <N> remediate
 **Date**: <timestamp>
 **Model**: <actual model that produced this report>
 **Risk Level**: LOW | MEDIUM | HIGH | CRITICAL
@@ -222,7 +245,6 @@ For each additional skill discovered (beyond security-validate), include a secti
 ```
 
 **IMPORTANT**: 
-- Set Status to FAIL if ANY required security control is missing
 - Set Risk Level to CRITICAL if any CRITICAL control is missing or vulnerability found
 - Always include the **Skills Used** table so the reader knows which skills ran and which were external
 - Tag every finding row with `🏠` (internal) or `🔌` (external) in the Origin column so the reader can distinguish sources at a glance
@@ -236,7 +258,7 @@ When running discovered skills (coworker/external skills beyond our own `securit
 1. Extract each distinct finding (violation, pass, warning) from the skill output
 2. For each finding, determine: control name, status (PASS/ERROR/WARN), severity, evidence, and recommendation
 3. Add each finding as a row in the **Discovered Skill Findings** table with `🔌 EXTERNAL` tag
-4. Factor the discovered skill findings into the overall security score
+4. Factor the discovered skill findings into the action tier counts
 
 ### Partial -- Output exists but doesn't match expected format
 
@@ -253,7 +275,7 @@ When running discovered skills (coworker/external skills beyond our own `securit
    | <skill-name> | N/A | N/A | ⚠️ SKIPPED | Skill produced no output / errored: <reason> |
    ```
 3. Do NOT let a coworker skill failure block the rest of the report
-4. Do NOT penalize the score for a skill that failed to run
+4. Do NOT penalize the action tier counts for a skill that failed to run
 
 ### Irrelevant -- Skill output is unrelated to the document
 
@@ -274,19 +296,19 @@ After writing the report, announce:
    Model: <actual model that ran this agent>
    
    RESULTS:
-   ├── Status: <PASS/FAIL>
-   ├── Score: <X>/100
    ├── Risk Level: <LOW/MEDIUM/HIGH/CRITICAL>
    ├── Index Files: <count>
    ├── Controls checked: <count>
-   │   ├── PASS:  <count>
-   │   ├── ERROR: <count>
-   │   └── WARN:  <count>
+   │   ├── Compliant:   <count>
+   │   ├── Verify:      <count>
+   │   ├── Investigate: <count>
+   │   ├── Plan:        <count>
+   │   └── Remediate:   <count>
    ├── Vulnerabilities: <count or "none">
    ├── Discovered skill findings: <count>
    └── Skills used: <list of discovered skills>
    
    OUTPUT:
-   └── Report: governance/output/<PAGE_ID>/security-report.md
+   └── Report: governance/output/<PAGE_ID>-security-report.md
 ═══════════════════════════════════════════════════════════════════
 ```

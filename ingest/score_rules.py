@@ -3,7 +3,7 @@
 Deterministic scoring engine for governance rules.
 
 Pure Python — zero LLM. Matches enriched rules against page claims and AST
-facts to produce pre-score.json with per-rule status and deterministic scores.
+facts to produce pre-score.json with per-rule action tiers and urgency.
 
 Scoring priority chain per rule:
   1. AST condition (strongest) -> CONFIRMED_PASS or CONFIRMED_ERROR
@@ -22,12 +22,13 @@ import hashlib
 import json
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# Status constants and their score contributions
+# Internal score values — used only for sorting/prioritization, never surfaced
 STATUS_SCORES = {
     "CONFIRMED_PASS": 100,
     "STRONG_PASS": 95,
@@ -41,10 +42,33 @@ STATUS_SCORES = {
     "CONFIRMED_ERROR": 0,
 }
 
+ACTION_TIERS = ("compliant", "verify", "investigate", "plan", "remediate")
+
+# Maps each status to (action_tier, urgency). Action tiers tell the user
+# *what to do* instead of assigning arbitrary numeric scores.
+STATUS_ACTIONS: Dict[str, tuple] = {
+    "CONFIRMED_PASS":  ("compliant", None),
+    "STRONG_PASS":     ("compliant", None),
+    "PATTERN_PASS":    ("compliant", None),
+    "CO_OCCUR_PASS":   ("verify", "low"),
+    "WEAK_EVIDENCE":   ("investigate", "medium"),
+    "CONTRADICTION":   ("investigate", "high"),
+    "DEFERRED_ERROR":  ("plan", "medium"),
+    "NEGATION_ERROR":  ("remediate", "high"),
+    "ABSENT_ERROR":    ("remediate", "medium"),
+    "CONFIRMED_ERROR": ("remediate", "critical"),
+}
+
 LOCKED_STATUSES = {
     "CONFIRMED_PASS", "STRONG_PASS", "PATTERN_PASS", "CO_OCCUR_PASS",
     "CONFIRMED_ERROR", "ABSENT_ERROR", "NEGATION_ERROR", "DEFERRED_ERROR",
 }
+
+
+def _build_action_summary(results: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Tally action tiers from a list of scored rule results."""
+    counts = Counter(r.get("action", "remediate") for r in results)
+    return {tier: counts.get(tier, 0) for tier in ACTION_TIERS}
 
 
 def _fingerprint(path: Path) -> str:
@@ -323,8 +347,6 @@ def score_rules(
             for er in enriched_data.get("rules", []):
                 enriched_map[er.get("rule_id", "")] = er
 
-        cat_total = 0
-        cat_max = 0
         cat_results: List[Dict[str, Any]] = []
 
         for rule in rules:
@@ -358,12 +380,7 @@ def score_rules(
             locked = status in LOCKED_STATUSES
             points = STATUS_SCORES.get(status, 0)
             confidence = rule.get("confidence", 1.0)
-
-            sev_weight = {"C": 4, "H": 3, "M": 2, "L": 1}.get(rule.get("sev", "M"), 2)
-            weighted_points = points * sev_weight * confidence
-
-            cat_total += weighted_points
-            cat_max += 100 * sev_weight * confidence
+            action, urgency = STATUS_ACTIONS.get(status, ("remediate", "medium"))
 
             result = {
                 "rule_id": rule_id,
@@ -373,6 +390,8 @@ def score_rules(
                 "required": rule.get("req", "N") == "Y",
                 "status": status,
                 "locked": locked,
+                "action": action,
+                "urgency": urgency,
                 "points": points,
                 "confidence": confidence,
                 "evidence": None,
@@ -383,32 +402,20 @@ def score_rules(
             cat_results.append(result)
             all_results.append(result)
 
-        cat_score = round((cat_total / cat_max) * 100, 1) if cat_max > 0 else 0
         locked_count = sum(1 for r in cat_results if r["locked"])
         total_count = len(cat_results)
 
         category_scores[category] = {
-            "score": cat_score,
+            "action_summary": _build_action_summary(cat_results),
             "rules_total": total_count,
             "rules_locked": locked_count,
             "rules_unlocked": total_count - locked_count,
-            "locked_pct": round(locked_count / total_count * 100, 1) if total_count else 0,
         }
-
-    total_points = sum(
-        r["points"] * {"C": 4, "H": 3, "M": 2, "L": 1}.get(r["severity"], 2) * r["confidence"]
-        for r in all_results
-    )
-    max_points = sum(
-        100 * {"C": 4, "H": 3, "M": 2, "L": 1}.get(r["severity"], 2) * r["confidence"]
-        for r in all_results
-    )
-    overall_score = round((total_points / max_points) * 100, 1) if max_points > 0 else 0
 
     output = {
         "page_id": page_id,
         "scored_at": datetime.now().isoformat(),
-        "overall_score": overall_score,
+        "action_summary": _build_action_summary(all_results),
         "category_scores": category_scores,
         "rules": all_results,
         "stats": {
@@ -443,13 +450,16 @@ def main() -> int:
         categories=cats,
     )
 
-    print(f"Score: {result['overall_score']}/100", file=sys.stderr)
+    summary = result["action_summary"]
+    parts = [f"{summary[t]} {t}" for t in ACTION_TIERS if summary[t]]
+    print(f"Actions: {' | '.join(parts)}", file=sys.stderr)
     print(f"Rules: {result['stats']['total_rules']} "
           f"(locked: {result['stats']['locked']}, unlocked: {result['stats']['unlocked']})",
           file=sys.stderr)
 
     for cat, cs in result["category_scores"].items():
-        print(f"  {cat}: {cs['score']}/100 ({cs['locked_pct']}% locked)", file=sys.stderr)
+        cat_parts = [f"{cs['action_summary'][t]} {t}" for t in ACTION_TIERS if cs["action_summary"][t]]
+        print(f"  {cat}: {' | '.join(cat_parts)}", file=sys.stderr)
 
     print(json.dumps(result, indent=2))
     return 0

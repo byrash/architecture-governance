@@ -12,7 +12,7 @@ Validate architecture document against all security documents in the index.
 
 1. **Document**: `governance/output/<PAGE_ID>/page.md` (provided by agent)
 2. **Index**: `governance/indexes/security/` (rules and per-page content)
-3. **AST files**: `governance/output/<PAGE_ID>/*.ast.json` — diagram structure (nodes, edges, groups)
+3. **AST files**: `governance/output/<PAGE_ID>/attachments/*.ast.json` — diagram structure (nodes, edges, groups)
 4. **Pre-score** (optional): `governance/output/<PAGE_ID>/pre-score.json` — deterministic pre-scoring results
 
 ## Instructions
@@ -23,22 +23,22 @@ Validate architecture document against all security documents in the index.
    - **Unlocked rules** (WEAK_EVIDENCE, CONTRADICTION): Evaluate these using your full LLM analysis
    - If pre-score.json does not exist, evaluate all rules normally (backward compatible)
 2. Read rules from `governance/indexes/security/` (per index-query: `_all.rules.md` > `<PAGE_ID>/rules.md` > `<PAGE_ID>/page.md`)
-3. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/`
+3. Read the architecture document and any `*.ast.json` files from `governance/output/<PAGE_ID>/attachments/`
 4. For each security control found in the index, check if addressed (skip locked rules from pre-score)
 5. Look for vulnerabilities (hardcoded secrets, etc.)
-6. Calculate score and write report — locked scores contribute their pre-score points, unlocked scores use your evaluation
+6. Assign action tiers and write report — locked rules keep their pre-score action tier, unlocked rules use your evaluation
 
 ## Validation Approach
 
 For each security control found in index files:
 - Search the document **text sections** for evidence of the control
-- Use **AST-based structural validation** (see below) when `*.ast.json` files exist
+- Use **AST-based structural validation** (see below) when `attachments/*.ast.json` files exist
 - Look for security mechanisms, protocols, configurations
 - Identify any vulnerabilities or security gaps
 
 ### AST-Based Structural Validation
 
-When `governance/output/<PAGE_ID>/*.ast.json` files exist, use them for structural evidence. The AST provides canonical `nodes`, `edges`, and `groups` — cite these elements in evidence.
+When `governance/output/<PAGE_ID>/attachments/*.ast.json` files exist, use them for structural evidence. The AST provides canonical `nodes`, `edges`, and `groups` — cite these elements in evidence.
 
 **How to extract security evidence from AST:**
 
@@ -70,14 +70,17 @@ Evidence: Edge `Vendor→GW` with label "HTTPS" confirms vendor traffic routes t
 - Direct database access without validation
 - Sensitive data exposure
 
-## Scoring
+## Action Tiers
 
-- Critical control met: +15 points
-- Critical control missing: 0 points (MAJOR issue)
-- High control met: +10 points
-- Medium control met: +5 points
-- Vulnerability found: -20 points each
-- Base score: Start at 0, max 100
+Each rule is assigned an action tier based on evidence found:
+
+| Action | When Assigned |
+|--------|---------------|
+| **Compliant** | Control clearly met (AST confirmed, strong evidence, or multiple pattern matches) |
+| **Verify** | Likely met but needs confirmation (co-occurrence match) |
+| **Investigate** | Ambiguous or conflicting evidence (weak evidence, contradiction) |
+| **Plan** | Gap acknowledged but deferred (e.g., "planned for next quarter") |
+| **Remediate** | Missing, negated, or AST-confirmed violation — must be fixed |
 
 ## Output
 
@@ -91,45 +94,45 @@ Write to `governance/output/<PAGE_ID>-security-report.md`:
 **Page ID**: <PAGE_ID>
 **Document**: governance/output/<PAGE_ID>/page.md
 **Index Files**: [count] files from governance/indexes/security/
-**Score**: X/100
-**Risk Level**: LOW / MEDIUM / HIGH / CRITICAL
-**Status**: ✅ PASS / ⚠️ WARN / ❌ FAIL
 
-## Summary
+## Action Summary
 
-| Status | Count |
+| Action | Count |
 |--------|-------|
-| ✅ Passed | N |
-| ❌ Failed | N |
-| 🚨 Critical | N |
+| Compliant | N |
+| Verify | N |
+| Investigate | N |
+| Plan | N |
+| Remediate | N |
 
 ## Security Controls Checked
 
-| Control | Source File | Severity | Status | Evidence |
-|---------|-------------|----------|--------|----------|
-| [control] | [index file] | Critical/High/Medium | ✅/❌ | [brief evidence] |
+| Control | Source File | Severity | Action | Urgency | Evidence |
+|---------|-------------|----------|--------|---------|----------|
+| [control] | [index file] | Critical/High/Medium | Compliant/Verify/Investigate/Plan/Remediate | --/low/medium/high/critical | [brief evidence] |
 
 ## Security Controls
 
 ### [Control Name]
 - **Source**: [index file that defines this control]
 - **Severity**: Critical / High / Medium
-- **Status**: ✅ PASS / ❌ FAIL
+- **Action**: Compliant / Verify / Investigate / Plan / Remediate
+- **Urgency**: -- / low / medium / high / critical
 - **Evidence**: [quote or describe what you found]
 - **Risk**: [what could go wrong if missing]
-- **Recommendation**: [if failed, what to add]
+- **Recommendation**: [if not compliant, what to do]
 
 [... repeat for each control ...]
 
 ## Vulnerabilities Detected
 
-[List any security issues found with severity]
+[List any security issues found with severity and urgency]
 
 ## Risk Assessment
 
-[Overall security posture analysis]
+[Overall security posture analysis focusing on actions needed]
 
 ## Recommendations
 
-[Prioritized security improvements]
+[Prioritized security improvements — remediate items first, then plan, then investigate]
 ```

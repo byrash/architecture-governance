@@ -56,7 +56,7 @@ except ImportError:
     HAS_MARKDOWNIFY = False
 
 
-def get_confluence_client() -> Optional[Confluence]:
+def get_confluence_client() -> "Optional[Confluence]":
     """Create Confluence client using PAT authentication."""
     url = os.environ.get("CONFLUENCE_URL")
     token = os.environ.get("CONFLUENCE_API_TOKEN") or os.environ.get("CONFLUENCE_TOKEN")
@@ -231,7 +231,7 @@ def extract_noformat_macros(storage_html: str) -> Tuple[str, List[str]]:
     """
     blocks = []
     pattern = re.compile(
-        r'<ac:structured-macro[^>]*ac:name="noformat"[^>]*>'
+        r'<ac:structured-macro[^>]*ac:name="(?:noformat|preformatted)"[^>]*>'
         r'.*?<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>'
         r'.*?</ac:structured-macro>',
         re.DOTALL | re.IGNORECASE
@@ -278,7 +278,7 @@ def extract_excerpt_macros(storage_html: str) -> Tuple[str, List[str]]:
         rich_body = match.group(2)
 
         name_match = re.search(
-            r'<ac:parameter\s+ac:name="(?:name|atlassian-macro-output-type)"[^>]*>([^<]+)</ac:parameter>',
+            r'<ac:parameter\s+ac:name="name"[^>]*>([^<]+)</ac:parameter>',
             params_section, re.IGNORECASE
         )
         name = name_match.group(1).strip() if name_match else f'excerpt_{len(names)}'
@@ -355,8 +355,10 @@ def convert_svg_to_ast_file(svg_path: Path, ast_output: str) -> bool:
             capture_output=True, text=True, check=True, timeout=30
         )
         return Path(ast_output).exists()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        pass
+    except subprocess.CalledProcessError as e:
+        print(f"  Warning: SVG conversion failed: {e}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"  Warning: SVG conversion timed out", file=sys.stderr)
     except Exception as e:
         print(f"  Error: SVG conversion: {e}", file=sys.stderr)
     return False
@@ -405,7 +407,7 @@ def store_ast_cache(file_hash: str, ast_json: str, source_name: str,
     meta_path.write_text(json.dumps(meta, indent=2), encoding='utf-8')
 
 
-def download_attachments(confluence: Confluence, page_id: str, download_dir: Path) -> Tuple[Dict[str, str], List[str]]:
+def download_attachments(confluence: "Confluence", page_id: str, download_dir: Path) -> Tuple[Dict[str, str], List[str]]:
     """
     Download all attachments from a Confluence page (latest version only).
     Returns (attachment_map, drawio_files) where:
@@ -449,7 +451,7 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
                 print(f"  ⏭️  Skipping (not needed): {filename}", file=sys.stderr)
                 continue
             
-            version = attachment.get('version', {}).get('number', 1)
+            version = (attachment.get('version') or {}).get('number', 1)
             
             if filename not in latest_attachments or version > latest_attachments[filename]['version']:
                 latest_attachments[filename] = {
@@ -559,7 +561,7 @@ def download_attachments(confluence: Confluence, page_id: str, download_dir: Pat
     return attachment_map, drawio_files
 
 
-def extract_drawio_diagrams(html: str, confluence: Confluence,
+def extract_drawio_diagrams(html: str, confluence: "Confluence",
                             download_dir: Path, attachment_map: Dict[str, str]) -> Dict[str, str]:
     """
     Extract drawio diagram metadata and map to .drawio files or PNG previews.
@@ -741,9 +743,14 @@ def extract_and_embed_images(storage_html: str, view_html: str,
         src = img.get('src', '')
         data_src = img.get('data-image-src', '')
         
+        matched = False
         for attr_value in [src, data_src]:
+            if matched:
+                break
             if attr_value:
                 for filename in attachment_map:
+                    if matched:
+                        break
                     filename_patterns = [
                         filename,
                         filename.replace(' ', '%20'),
@@ -752,6 +759,7 @@ def extract_and_embed_images(storage_html: str, view_html: str,
                     for pattern in filename_patterns:
                         if pattern in attr_value:
                             img['src'] = filename
+                            matched = True
                             break
     
     # Handle span.confluence-embedded-file-wrapper
@@ -943,8 +951,12 @@ def copy_to_index(page_id: str, index: str,
     return str(dst)
 
 
+class IngestError(RuntimeError):
+    """Raised when page ingestion fails."""
+
+
 def ingest_page(page_id: str, output_dir: str = "governance/output",
-                convert_diagrams: bool = True, mode: str = "governance",
+                convert_diagrams: bool = True,
                 index: Optional[str] = None) -> dict:
     """
     Ingest a Confluence page and produce a self-contained Markdown file.
@@ -953,20 +965,23 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
         page_id: Confluence page ID
         output_dir: Base output directory
         convert_diagrams: Whether to convert diagrams to AST
-        mode: 'governance' or 'index' mode
         index: If provided, copy artifacts to governance/indexes/<index>/<PAGE_ID>/
 
     Returns:
         Dict with metadata, paths, and attachments info
+
+    Raises:
+        IngestError: When a prerequisite is missing or the page cannot be fetched.
     """
     if not HAS_ATLASSIAN:
-        print("Error: atlassian-python-api not installed.", file=sys.stderr)
-        print("Install with: pip install atlassian-python-api", file=sys.stderr)
-        sys.exit(1)
-    
+        raise IngestError(
+            "atlassian-python-api not installed. "
+            "Install with: pip install atlassian-python-api"
+        )
+
     confluence = get_confluence_client()
     if not confluence:
-        sys.exit(1)
+        raise IngestError("Could not create Confluence client — check credentials")
     
     # Create output directories: governance/output/<PAGE_ID>/
     output_base = Path(output_dir)
@@ -1016,8 +1031,7 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
     try:
         page = confluence.get_page_by_id(page_id, expand='body.storage,body.view,version,space,ancestors')
     except Exception as e:
-        print(f"Error fetching page: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise IngestError(f"Error fetching page: {e}") from e
     
     title = page.get('title', 'Untitled')
     print(f"Page: {title}", file=sys.stderr)
@@ -1164,14 +1178,13 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                 print(f"  📎 NoFormat block {i} injected (view rendering stripped placeholder)", file=sys.stderr)
 
     # --- Conversion cascade: Draw.io → SVG → PlantUML → AST tables ---
-    from ingest.diagram_ast import load_ast, ast_to_markdown_tables
-    from ingest.diagram_ast import save_ast as _save_ast
-    from ingest.plantuml_to_ast import convert_plantuml_to_ast
-
     diagram_table_map: Dict[str, str] = {}
     conversion_manifest = []
 
     if convert_diagrams:
+        from ingest.diagram_ast import load_ast, ast_to_markdown_tables
+        from ingest.diagram_ast import save_ast as _save_ast
+        from ingest.plantuml_to_ast import convert_plantuml_to_ast
         # Phase 1: Draw.io files → AST JSON + markdown tables
         all_drawio_files = []
         if download_dir.exists():
@@ -1296,35 +1309,38 @@ def ingest_page(page_id: str, output_dir: str = "governance/output",
                         'error': 'SVG contains embedded raster or no parseable shapes',
                     })
 
-    # Phase 2b: Auto-detect and convert PlantUML blocks in the markdown
-    _puml_startuml = re.compile(r'(@startuml\b[^\n]*\n.*?@enduml)', re.DOTALL | re.IGNORECASE)
-    _puml_fenced = re.compile(r'(```(?:plantuml|puml)\s*\n.*?```)', re.DOTALL | re.IGNORECASE)
-    puml_seq = 0
-    for pattern_re in (_puml_startuml, _puml_fenced):
-        for m in pattern_re.finditer(md_content):
-            block_text = m.group(1)
-            inner = re.sub(r'@startuml\b[^\n]*\n?', '', block_text, flags=re.IGNORECASE)
-            inner = re.sub(r'@enduml\b[^\n]*', '', inner, flags=re.IGNORECASE)
-            inner = re.sub(r'^```(?:plantuml|puml)\s*\n', '', inner, flags=re.IGNORECASE)
-            inner = re.sub(r'\n?```\s*$', '', inner)
-            inner = inner.strip()
-            if not inner:
-                continue
-            stem = f"plantuml_{puml_seq}"
-            ast_path_str = str(download_dir / f"{stem}.ast.json")
-            ast = convert_plantuml_to_ast(inner)
-            _save_ast(ast, ast_path_str)
-            table_md = ast_to_markdown_tables(ast, source_name=f"{stem}.puml")
-            md_content = md_content.replace(block_text, f"\n{table_md}\n", 1)
-            print(f"   PlantUML block -> AST + table ({stem})", file=sys.stderr)
-            conversion_manifest.append({
-                'source': f'{stem}.puml', 'method': 'plantuml_parser',
-                'deterministic': True, 'valid': True,
-                'ast_file': f"{stem}.ast.json",
-            })
-            puml_seq += 1
-    if puml_seq:
-        print(f"\n  Converted {puml_seq} PlantUML block(s) to AST tables", file=sys.stderr)
+        # Phase 2b: Auto-detect and convert PlantUML blocks in the markdown.
+        # Process fenced blocks FIRST so that blocks with both fencing AND
+        # @startuml/@enduml markers are handled once (the fenced regex is the
+        # outer wrapper).  After replacement the @startuml pass won't re-match.
+        _puml_fenced = re.compile(r'(```(?:plantuml|puml)\s*\n.*?```)', re.DOTALL | re.IGNORECASE)
+        _puml_startuml = re.compile(r'(@startuml\b[^\n]*\n.*?@enduml)', re.DOTALL | re.IGNORECASE)
+        puml_seq = 0
+        for pattern_re in (_puml_fenced, _puml_startuml):
+            for m in pattern_re.finditer(md_content):
+                block_text = m.group(1)
+                inner = re.sub(r'^```(?:plantuml|puml)\s*\n', '', block_text, flags=re.IGNORECASE)
+                inner = re.sub(r'\n?```\s*$', '', inner)
+                inner = re.sub(r'@startuml\b[^\n]*\n?', '', inner, flags=re.IGNORECASE)
+                inner = re.sub(r'@enduml\b[^\n]*', '', inner, flags=re.IGNORECASE)
+                inner = inner.strip()
+                if not inner:
+                    continue
+                stem = f"plantuml_{puml_seq}"
+                ast_path_str = str(download_dir / f"{stem}.ast.json")
+                ast = convert_plantuml_to_ast(inner)
+                _save_ast(ast, ast_path_str)
+                table_md = ast_to_markdown_tables(ast, source_name=f"{stem}.puml")
+                md_content = md_content.replace(block_text, f"\n{table_md}\n", 1)
+                print(f"   PlantUML block -> AST + table ({stem})", file=sys.stderr)
+                conversion_manifest.append({
+                    'source': f'{stem}.puml', 'method': 'plantuml_parser',
+                    'deterministic': True, 'valid': True,
+                    'ast_file': f"{stem}.ast.json",
+                })
+                puml_seq += 1
+        if puml_seq:
+            print(f"\n  Converted {puml_seq} PlantUML block(s) to AST tables", file=sys.stderr)
 
     # Fix image paths FIRST so URLs are normalized before AST table replacement
     attachments_folder = "attachments"
@@ -1451,12 +1467,6 @@ Example:
         help="Skip diagram conversion to AST"
     )
     parser.add_argument(
-        "--mode", "-m",
-        choices=["governance", "index"],
-        default="governance",
-        help="Mode: 'governance' for validation, 'index' for rule indexing (default: governance)"
-    )
-    parser.add_argument(
         "--index", "-i",
         choices=["patterns", "standards", "security"],
         default=None,
@@ -1465,31 +1475,30 @@ Example:
     
     args = parser.parse_args()
     
-    result = ingest_page(
-        page_id=args.page_id,
-        output_dir=args.output_dir,
-        convert_diagrams=not args.no_convert,
-        mode=args.mode,
-        index=args.index,
-    )
-    
-    # Print result as JSON for programmatic use
+    try:
+        result = ingest_page(
+            page_id=args.page_id,
+            output_dir=args.output_dir,
+            convert_diagrams=not args.no_convert,
+            index=args.index,
+        )
+    except IngestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     print(json.dumps(result, indent=2))
     return 0
 
 
 def _parse_md_report(content: str) -> Dict[str, Any]:
-    """Extract structured data from the governance-report.md."""
+    """Extract structured data from the governance-report.md (action-based format)."""
+    tiers = ("compliant", "verify", "investigate", "plan", "remediate")
     data: Dict[str, Any] = {
         "timestamp": "",
         "page_id": "",
-        "status": "",
-        "overall_score": 0,
-        "patterns_score": 0,
-        "standards_score": 0,
-        "security_score": 0,
+        "action_summary": {t: 0 for t in tiers},
+        "categories": {},
         "executive_summary": "",
-        "breakdown_rows": [],
         "critical_issues": [],
         "quick_wins": [],
         "recommendations": [],
@@ -1502,44 +1511,36 @@ def _parse_md_report(content: str) -> Dict[str, Any]:
     if pid:
         data["page_id"] = pid.group(1).strip()
 
-    status_m = re.search(r"\*\*Status\*\*\s*\|\s*(.+)", content)
-    if status_m:
-        raw = status_m.group(1).strip().rstrip("|").strip()
-        if "PASS" in raw:
-            data["status"] = "PASS"
-        elif "WARN" in raw:
-            data["status"] = "WARN"
-        else:
-            data["status"] = "FAIL"
-
-    def _extract_score(label: str) -> int:
-        m = re.search(rf"\*\*{label}\*\*\s*\|\s*(\d+)/100", content)
-        if m:
-            return int(m.group(1))
-        m2 = re.search(rf"\|\s*\*\*{label}\*\*\s*\|\s*(\d+)/100", content)
-        return int(m2.group(1)) if m2 else 0
-
-    data["overall_score"] = _extract_score("Overall Score")
-    data["patterns_score"] = _extract_score("Patterns")
-    data["standards_score"] = _extract_score("Standards")
-    data["security_score"] = _extract_score("Security")
+    action_table_m = re.search(
+        r"## Action Summary\s*\n+.*?\n\|[-\s|]+\|\n(.*?)(?=\n## |\Z)",
+        content,
+        re.DOTALL,
+    )
+    if action_table_m:
+        cat_names = ["patterns", "standards", "security"]
+        for line in action_table_m.group(1).strip().splitlines():
+            cols = [c.strip() for c in line.strip("|").split("|")]
+            if len(cols) < 2:
+                continue
+            tier_name = cols[0].replace("*", "").strip().lower()
+            if tier_name in tiers:
+                try:
+                    data["action_summary"][tier_name] = int(cols[1])
+                except (ValueError, IndexError):
+                    pass
+                for i, cat in enumerate(cat_names):
+                    if i + 2 < len(cols):
+                        data["categories"].setdefault(cat, {t: 0 for t in tiers})
+                        try:
+                            data["categories"][cat][tier_name] = int(cols[i + 2])
+                        except (ValueError, IndexError):
+                            pass
 
     exec_m = re.search(
         r"## Executive Summary\s*\n(.*?)(?=\n## |\Z)", content, re.DOTALL
     )
     if exec_m:
         data["executive_summary"] = exec_m.group(1).strip()
-
-    breakdown_m = re.search(
-        r"## Score Breakdown\s*\n.*?\n\|[-\s|]+\|\n(.*?)(?=\n## |\Z)",
-        content,
-        re.DOTALL,
-    )
-    if breakdown_m:
-        for line in breakdown_m.group(1).strip().splitlines():
-            cols = [c.strip() for c in line.strip("|").split("|")]
-            if len(cols) >= 7:
-                data["breakdown_rows"].append(cols)
 
     def _extract_list(heading: str) -> List[str]:
         m = re.search(
@@ -1562,29 +1563,28 @@ def _parse_md_report(content: str) -> Dict[str, Any]:
     return data
 
 
-def _score_color(score: int) -> str:
-    if score >= 70:
-        return "#10b981"
-    if score >= 50:
-        return "#f59e0b"
-    return "#ef4444"
+_TIER_COLORS = {
+    "compliant": "#10b981",
+    "verify": "#3b82f6",
+    "investigate": "#f59e0b",
+    "plan": "#ea580c",
+    "remediate": "#ef4444",
+}
 
-
-def _status_label(status: str) -> Tuple[str, str, str]:
-    """Return (emoji, text, color) for a status."""
-    if status == "PASS":
-        return ("✅", "PASS", "#10b981")
-    if status == "WARN":
-        return ("⚠️", "NEEDS WORK", "#f59e0b")
-    return ("❌", "FAILING", "#ef4444")
+_TIER_BG = {
+    "compliant": "#ecfdf5",
+    "verify": "#eff6ff",
+    "investigate": "#fffbeb",
+    "plan": "#fff7ed",
+    "remediate": "#fef2f2",
+}
 
 
 def _build_confluence_comment(data: Dict[str, Any]) -> str:
     """Build beautifully styled Confluence comment HTML with inline styles."""
-    score = data["overall_score"]
-    emoji, label, color = _status_label(data["status"])
-
-    s = lambda k: data.get(k, 0)  # noqa: E731
+    tiers = ("compliant", "verify", "investigate", "plan", "remediate")
+    summary = data.get("action_summary", {})
+    total = sum(summary.get(t, 0) for t in tiers)
 
     parts: List[str] = []
 
@@ -1594,39 +1594,69 @@ def _build_confluence_comment(data: Dict[str, Any]) -> str:
         f'color:white;padding:28px 32px;border-radius:10px;margin-bottom:20px;">'
         f'<h2 style="margin:0 0 4px;color:white;font-size:1.4em;">🏛️ Architecture Governance Report</h2>'
         f'<div style="opacity:0.85;font-size:0.9em;">Page {data["page_id"]} · {data["timestamp"]}</div>'
-        f'<div style="display:inline-block;margin-top:12px;padding:6px 18px;border-radius:999px;'
-        f'background:rgba(255,255,255,0.2);font-weight:600;font-size:0.95em;">'
-        f'{emoji} {label} — Overall Score: {score}/100</div>'
         f'</div>'
     )
 
-    # ── Score cards row ───────────────────────────────────────────
-    card_style = (
-        "display:inline-block;width:23%;min-width:140px;vertical-align:top;"
-        "background:white;border-radius:10px;padding:18px 12px;text-align:center;"
-        "box-shadow:0 2px 8px rgba(0,0,0,0.06);margin:0 6px 12px;"
-    )
+    # ── Action summary bar + pills ────────────────────────────────
+    if total > 0:
+        bar_parts = ""
+        for t in tiers:
+            n = summary.get(t, 0)
+            if n > 0:
+                pct = n / total * 100
+                bar_parts += (
+                    f'<div style="width:{pct:.1f}%;height:100%;'
+                    f'background:{_TIER_COLORS[t]};display:inline-block;" '
+                    f'title="{t.capitalize()}: {n}"></div>'
+                )
 
-    def score_card(title: str, sc: int, weight: str = "") -> str:
-        c = _score_color(sc)
-        wt = f' <span style="font-weight:400;color:#6b7280;font-size:0.8em;">({weight})</span>' if weight else ""
-        return (
-            f'<div style="{card_style}border-left:4px solid {c};">'
-            f'<div style="font-size:0.8em;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;'
-            f'margin-bottom:6px;">{title}{wt}</div>'
-            f'<div style="font-size:2.2em;font-weight:700;color:{c};line-height:1;">{sc}</div>'
-            f'<div style="font-size:0.75em;color:#9ca3af;">/100</div>'
-            f'<div style="margin-top:8px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;">'
-            f'<div style="width:{sc}%;height:100%;background:{c};border-radius:3px;"></div></div>'
+        pill_parts = ""
+        for t in tiers:
+            n = summary.get(t, 0)
+            if n > 0:
+                pill_parts += (
+                    f'<span style="display:inline-block;padding:4px 14px;border-radius:999px;'
+                    f'background:{_TIER_BG[t]};color:{_TIER_COLORS[t]};'
+                    f'font-weight:600;font-size:0.9em;margin:0 4px 8px;">'
+                    f'{n} {t.capitalize()}</span>'
+                )
+
+        parts.append(
+            f'<div style="background:white;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);'
+            f'border:1px solid #e5e7eb;padding:20px;margin-bottom:20px;">'
+            f'<h3 style="margin:0 0 14px;font-size:1em;">📊 Action Summary</h3>'
+            f'<div style="height:10px;border-radius:5px;overflow:hidden;'
+            f'background:#e5e7eb;margin-bottom:14px;">{bar_parts}</div>'
+            f'<div>{pill_parts}</div>'
             f'</div>'
         )
 
-    parts.append('<div style="text-align:center;margin-bottom:20px;">')
-    parts.append(score_card("Overall", score))
-    parts.append(score_card("Patterns", s("patterns_score"), "30%"))
-    parts.append(score_card("Standards", s("standards_score"), "30%"))
-    parts.append(score_card("Security", s("security_score"), "40%"))
-    parts.append("</div>")
+    # ── Per-category breakdown ────────────────────────────────────
+    categories = data.get("categories", {})
+    if categories:
+        th_style = (
+            "background:#f9fafb;font-weight:600;font-size:0.8em;text-transform:uppercase;"
+            "letter-spacing:0.04em;color:#6b7280;padding:10px 14px;border-bottom:2px solid #e5e7eb;"
+        )
+        td_style = "padding:10px 14px;border-bottom:1px solid #f3f4f6;"
+        parts.append(
+            '<div style="background:white;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
+            'border:1px solid #e5e7eb;padding:20px;margin-bottom:20px;">'
+            '<h3 style="margin:0 0 14px;font-size:1em;">📋 Category Breakdown</h3>'
+            '<table style="width:100%;border-collapse:collapse;">'
+            f'<tr><th style="{th_style}">Category</th>'
+        )
+        for t in tiers:
+            parts.append(f'<th style="{th_style}">{t.capitalize()}</th>')
+        parts.append('</tr>')
+        for cat, counts in categories.items():
+            parts.append(f'<tr><td style="{td_style}font-weight:600;">{cat.capitalize()}</td>')
+            for t in tiers:
+                n = counts.get(t, 0)
+                c = _TIER_COLORS[t] if n > 0 else "#9ca3af"
+                parts.append(f'<td style="{td_style}color:{c};font-weight:600;">{n}</td>')
+            parts.append('</tr>')
+        parts.append("</table></div>")
 
     # ── Executive summary ─────────────────────────────────────────
     if data["executive_summary"]:
@@ -1637,44 +1667,6 @@ def _build_confluence_comment(data: Dict[str, Any]) -> str:
             f'<strong style="color:#111827;">📝 Executive Summary</strong><br/>'
             f'{data["executive_summary"]}</div>'
         )
-
-    # ── Score breakdown table ─────────────────────────────────────
-    if data["breakdown_rows"]:
-        th_style = (
-            "background:#f9fafb;font-weight:600;font-size:0.8em;text-transform:uppercase;"
-            "letter-spacing:0.04em;color:#6b7280;padding:10px 14px;border-bottom:2px solid #e5e7eb;"
-        )
-        td_style = "padding:10px 14px;border-bottom:1px solid #f3f4f6;"
-        parts.append(
-            '<div style="background:white;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
-            'border:1px solid #e5e7eb;padding:20px;margin-bottom:20px;">'
-            '<h3 style="margin:0 0 14px;font-size:1em;">📊 Score Breakdown</h3>'
-            '<table style="width:100%;border-collapse:collapse;">'
-            f'<tr><th style="{th_style}">Category</th><th style="{th_style}">Score</th>'
-            f'<th style="{th_style}">Weight</th><th style="{th_style}">Weighted</th>'
-            f'<th style="{th_style}">Checks</th><th style="{th_style}">Errors</th>'
-            f'<th style="{th_style}">Warnings</th></tr>'
-        )
-        for row in data["breakdown_rows"]:
-            clean = row[0].replace("*", "")
-            is_total = "total" in clean.lower()
-            sc_val = re.search(r"(\d+)", row[1]) if row[1] else None
-            row_sc = int(sc_val.group(1)) if sc_val else 0
-            c = _score_color(row_sc) if not is_total else "#111827"
-            fw = "font-weight:700;" if is_total else ""
-            bg = "background:#f9fafb;" if is_total else ""
-            parts.append(
-                f'<tr style="{bg}">'
-                f'<td style="{td_style}{fw}">{clean}</td>'
-                f'<td style="{td_style}{fw}color:{c};">{row[1].replace("*","")}</td>'
-                f'<td style="{td_style}">{row[2].replace("*","")}</td>'
-                f'<td style="{td_style}{fw}">{row[3].replace("*","")}</td>'
-                f'<td style="{td_style}{fw}">{row[4].replace("*","")}</td>'
-                f'<td style="{td_style}{fw}color:#ef4444;">{row[5].replace("*","")}</td>'
-                f'<td style="{td_style}{fw}color:#f59e0b;">{row[6].replace("*","")}</td>'
-                f"</tr>"
-            )
-        parts.append("</table></div>")
 
     # ── Callout section builder ───────────────────────────────────
     def _callout_section(
@@ -1744,6 +1736,8 @@ def post_report_to_confluence(
 
     if report_path:
         rp = Path(report_path)
+        if not rp.exists():
+            return {"error": f"Report file not found: {report_path}"}
     elif md_report.exists():
         rp = md_report
     elif html_report.exists():

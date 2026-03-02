@@ -357,15 +357,15 @@ Use the `merge-reports` skill. Process reports **one at a time** to avoid loadin
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting patterns scores","detail":"Reading patterns-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting patterns actions","detail":"Reading patterns-report.md to extract action counts and critical issues"}' || true
 ```
 
-1. Read patterns report -- extract score, counts, critical issues -- write to extract file -- release
+1. Read patterns report -- extract action counts, critical issues -- write to extract file -- release
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting standards scores","detail":"Reading standards-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting standards actions","detail":"Reading standards-report.md to extract action counts and critical issues"}' || true
 ```
 
 2. Read standards report -- extract and append -- release
@@ -373,7 +373,7 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting security scores","detail":"Reading security-report.md to extract score, counts, and critical issues"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Merging reports — extracting security actions","detail":"Reading security-report.md to extract action counts and critical issues"}' || true
 ```
 
 3. Read security report -- extract and append -- release
@@ -381,16 +381,16 @@ curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Calculating weighted score and writing governance report","detail":"Formula: patterns x0.30 + standards x0.30 + security x0.40"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"running","message":"Assembling action summary and writing governance report","detail":"Summing action tiers across categories"}' || true
 ```
 
-4. Read the compact extract file -- calculate weighted score `(P*0.30 + S*0.30 + Sec*0.40)` -- write `<PAGE_ID>-governance-report.md`
+4. Read the compact extract file -- sum action counts across categories -- write `<PAGE_ID>-governance-report.md`
 5. Delete the extract file
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":8,"agent":"governance-agent","status":"complete","message":"Reports merged — overall score: <SCORE>/100","detail":"Weighted: patterns <PAT> x0.30 + standards <STD> x0.30 + security <SEC> x0.40"}' || true
+  -d '{"step":8,"agent":"governance-agent","status":"complete","message":"Reports merged — <REMEDIATE> remediate, <INVESTIGATE> investigate, <PLAN> plan, <VERIFY> verify, <COMPLIANT> compliant","detail":"Action summary across patterns, standards, and security"}' || true
 ```
 
 ### Step 9: Generate HTML Dashboard (Incremental)
@@ -400,10 +400,10 @@ Use the `markdown-to-html` skill. Build the HTML file in phases -- one source re
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — writing dashboard shell","detail":"Building header, score gauges, executive summary, and score breakdown"}' || true
+  -d '{"step":9,"agent":"governance-agent","status":"running","message":"Generating HTML — writing dashboard shell","detail":"Building header, action summary bar, executive summary, and action breakdown"}' || true
 ```
 
-1. Read governance report (compact) -- write HTML shell with scores, summary, critical issues
+1. Read governance report (compact) -- write HTML shell with action summary, critical issues
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
@@ -457,15 +457,21 @@ print(result)
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
   -H 'Content-Type: application/json' \
-  -d '{"step":10,"agent":"governance-agent","status":"running","message":"Sending final scores to dashboard","detail":"Score: <SCORE>/100 — patterns: <PAT>, standards: <STD>, security: <SEC>"}' || true
+  -d '{"step":10,"agent":"governance-agent","status":"running","message":"Sending action summary to dashboard","detail":"<REMEDIATE> remediate, <INVESTIGATE> investigate, <PLAN> plan, <VERIFY> verify, <COMPLIANT> compliant"}' || true
 ```
 
-**Notify the watcher server with the final scores** so the UI shows the score card. Replace `<SCORE>`, `<PAT>`, `<STD>`, `<SEC>` with the actual computed values and `<RESULT>` with `pass` or `fail`:
+**Notify the watcher server with the final action summary** so the UI shows action pills. Replace `<N>` values with actual counts per action tier. Include per-category breakdowns:
 
 ```bash
 curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/report \
   -H 'Content-Type: application/json' \
-  -d '{"score":<SCORE>,"status":"<RESULT>","patterns":<PAT>,"standards":<STD>,"security":<SEC>}' || true
+  -d '{"action_summary":{"compliant":<N>,"verify":<N>,"investigate":<N>,"plan":<N>,"remediate":<N>},"categories":{"patterns":{"compliant":<N>,"verify":<N>,"investigate":<N>,"plan":<N>,"remediate":<N>},"standards":{"compliant":<N>,"verify":<N>,"investigate":<N>,"plan":<N>,"remediate":<N>},"security":{"compliant":<N>,"verify":<N>,"investigate":<N>,"plan":<N>,"remediate":<N>}}}' || true
+```
+
+```bash
+curl -sf -X POST http://localhost:8000/api/pages/<PAGE_ID>/progress \
+  -H 'Content-Type: application/json' \
+  -d '{"step":10,"agent":"governance-agent","status":"complete","message":"Governance validation complete","detail":"Report posted to Confluence and action summary sent to dashboard"}' || true
 ```
 
 ## Verbose Logging

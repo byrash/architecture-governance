@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ingest.score_rules import (
     _evaluate_ast_condition, _match_claim, _keyword_match,
-    STATUS_SCORES, LOCKED_STATUSES, score_rules,
+    STATUS_SCORES, STATUS_ACTIONS, ACTION_TIERS, LOCKED_STATUSES, score_rules,
 )
 
 
@@ -88,6 +88,27 @@ class TestLocking:
         assert "CONTRADICTION" not in LOCKED_STATUSES
 
 
+class TestStatusActions:
+    def test_all_scores_have_actions(self):
+        for status in STATUS_SCORES:
+            assert status in STATUS_ACTIONS, f"{status} missing from STATUS_ACTIONS"
+
+    def test_action_tiers_are_valid(self):
+        for status, (action, _urgency) in STATUS_ACTIONS.items():
+            assert action in ACTION_TIERS, f"{status} has invalid tier '{action}'"
+
+    def test_pass_statuses_are_compliant(self):
+        for status in ("CONFIRMED_PASS", "STRONG_PASS", "PATTERN_PASS"):
+            action, urgency = STATUS_ACTIONS[status]
+            assert action == "compliant"
+            assert urgency is None
+
+    def test_error_statuses_are_remediate(self):
+        for status in ("NEGATION_ERROR", "ABSENT_ERROR", "CONFIRMED_ERROR"):
+            action, _urgency = STATUS_ACTIONS[status]
+            assert action == "remediate"
+
+
 class TestDeterministicScoring:
     def test_identical_results(self):
         """Run scorer multiple times on same inputs — must be identical."""
@@ -119,6 +140,38 @@ class TestDeterministicScoring:
                     output_dir=str(Path(tmpdir) / "output"),
                     indexes_dir=str(Path(tmpdir) / "indexes"),
                 )
-                results.append(r["overall_score"])
+                results.append(r["action_summary"])
 
-            assert results[0] == results[1] == results[2], f"Scores differ: {results}"
+            assert results[0] == results[1] == results[2], f"Action summaries differ: {results}"
+
+    def test_action_fields_present(self):
+        """Each scored rule must have action and urgency fields."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            page_dir = Path(tmpdir) / "output" / "test_page"
+            page_dir.mkdir(parents=True)
+            idx_dir = Path(tmpdir) / "indexes" / "security"
+            idx_dir.mkdir(parents=True)
+
+            (page_dir / "page.md").write_text("# Test\nUses HTTPS everywhere.")
+
+            rules_md = idx_dir / "_all.rules.md"
+            rules_md.write_text(
+                "| ID | Rule | Sev | Req | Keywords | Condition | AST Condition | Conf | Source |\n"
+                "|----|------|-----|-----|----------|-----------|---------------|------|--------|\n"
+                "| R-PROTO-abc123 | Secure transport | C | Y | https, tls | All HTTPS | | 1.00 | p1 |\n"
+            )
+
+            r = score_rules(
+                "test_page",
+                output_dir=str(Path(tmpdir) / "output"),
+                indexes_dir=str(Path(tmpdir) / "indexes"),
+            )
+
+            assert "action_summary" in r
+            for tier in ACTION_TIERS:
+                assert tier in r["action_summary"]
+
+            for rule in r["rules"]:
+                assert "action" in rule
+                assert "urgency" in rule
+                assert rule["action"] in ACTION_TIERS

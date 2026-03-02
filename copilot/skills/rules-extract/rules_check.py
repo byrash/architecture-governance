@@ -24,11 +24,10 @@ Zero external dependencies -- uses only Python 3 standard library.
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 
@@ -176,12 +175,7 @@ def check_folder(folder: str) -> List[FileStatus]:
     all_rules = folder_path / '_all.rules.md'
     if all_rules.exists():
         all_mtime = all_rules.stat().st_mtime
-        any_newer = any(
-            r.source_mtime > all_mtime
-            for r in results
-            if r.status in ('stale', 'missing')
-        )
-        if any_newer or any(r.status in ('stale', 'missing') for r in results):
+        if any(r.status in ('stale', 'missing') for r in results):
             results.append(FileStatus(
                 source='(all source files)',
                 rules_file=str(all_rules),
@@ -217,7 +211,7 @@ def print_results(results: List[FileStatus], folder: str, as_json: bool = False,
                 for r in results
             ],
             'summary': {
-                'total': len([r for r in results if r.status != 'stale' or '(all' not in r.source]),
+                'total': len([r for r in results if '(all' not in r.source]),
                 'stale': len([r for r in results if r.status == 'stale' and '(all' not in r.source]),
                 'missing': len([r for r in results if r.status == 'missing' and '(all' not in r.source]),
                 'current': len([r for r in results if r.status == 'current']),

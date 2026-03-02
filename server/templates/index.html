@@ -560,9 +560,9 @@
       }
     }
 
-    /* ── Score card ───────────────────────────────────────── */
+    /* ── Action summary card ─────────────────────────────── */
 
-    .score-card {
+    .action-card {
       margin-top: 8px;
       padding: 10px 14px;
       border-radius: 6px;
@@ -570,38 +570,38 @@
       border: 1px solid var(--border);
     }
 
-    .score-overall {
-      font-size: 1.4rem;
-      font-weight: 700;
-      display: inline-block;
-      padding: 2px 12px;
-      border-radius: 6px;
-      margin-right: 10px;
+    .action-bar {
+      display: flex;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 8px;
     }
 
-    .score-pass {
-      background: #dafbe1;
-      color: var(--green);
-    }
+    .action-bar .seg-compliant { background: #1a7f37; }
+    .action-bar .seg-verify { background: #0969da; }
+    .action-bar .seg-investigate { background: #9a6700; }
+    .action-bar .seg-plan { background: #bc4c00; }
+    .action-bar .seg-remediate { background: #cf222e; }
 
-    .score-fail {
-      background: #ffebe9;
-      color: var(--red);
-    }
-
-    .score-pills {
+    .action-pills {
       display: flex;
       gap: 8px;
-      margin-top: 6px;
       flex-wrap: wrap;
     }
 
-    .score-pill {
+    .action-pill {
       padding: 2px 10px;
       border-radius: 12px;
       font-size: 0.78rem;
       font-weight: 500;
     }
+
+    .action-pill.pill-compliant { background: #dafbe1; color: var(--green); }
+    .action-pill.pill-verify { background: #ddf4ff; color: var(--accent); }
+    .action-pill.pill-investigate { background: #fff8c5; color: var(--yellow); }
+    .action-pill.pill-plan { background: #fff1e5; color: #bc4c00; }
+    .action-pill.pill-remediate { background: #ffebe9; color: var(--red); }
 
     /* ── Modal overlay ───────────────────────────────────── */
 
@@ -757,7 +757,7 @@
     </div>
 
     <div class="add-form">
-      <input type="text" id="pageId" placeholder="Confluence Page ID" />
+      <input type="text" id="pageId" placeholder="Confluence Page ID" onkeydown="if(event.key==='Enter')submitPage()" />
       <select id="modeSelect" onchange="onModeChange()">
         <option value="validate" selected>Validate</option>
         <option value="index">Index</option>
@@ -818,14 +818,14 @@
     // ── Utilities ──────────────────────────────────────────────────────
 
     function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function copyCmd(el) {
       navigator.clipboard.writeText(el.textContent).then(() => {
         el.classList.add('copied');
         setTimeout(() => el.classList.remove('copied'), 1200);
-      });
+      }).catch(() => { });
     }
 
     // ── Modal ─────────────────────────────────────────────────────────
@@ -842,27 +842,35 @@
     }
 
     async function viewPreview(pageId) {
-      const res = await fetch(`/pages/${pageId}/preview`);
-      if (!res.ok) { alert('Preview not available'); return; }
-      openModal(`Page ${pageId} — Preview`, await res.text());
+      try {
+        const res = await fetch(`/pages/${pageId}/preview`);
+        if (!res.ok) { alert('Preview not available'); return; }
+        openModal(`Page ${pageId} — Preview`, await res.text());
+      } catch (e) { alert('Server unreachable'); }
     }
 
     async function viewReport(pageId) {
-      const res = await fetch(`/api/pages/${pageId}/report`);
-      if (!res.ok) { alert('Report not available yet'); return; }
-      openModal(`Page ${pageId} — Governance Report`, await res.text());
+      try {
+        const res = await fetch(`/api/pages/${pageId}/report`);
+        if (!res.ok) { alert('Report not available yet'); return; }
+        openModal(`Page ${pageId} — Governance Report`, await res.text());
+      } catch (e) { alert('Server unreachable'); }
     }
 
     async function viewPageRules(pageId) {
-      const res = await fetch(`/api/pages/${pageId}/rules`);
-      if (!res.ok) { alert('Rules not available'); return; }
-      openModal(`Page ${pageId} — Extracted Rules`, await res.text());
+      try {
+        const res = await fetch(`/api/pages/${pageId}/rules`);
+        if (!res.ok) { alert('Rules not available'); return; }
+        openModal(`Page ${pageId} — Extracted Rules`, await res.text());
+      } catch (e) { alert('Server unreachable'); }
     }
 
     async function viewIndexRules(cat) {
-      const res = await fetch(`/api/indexes/${cat}/rules`);
-      if (!res.ok) { alert('Consolidated rules not available — run index preparation first'); return; }
-      openModal(`${cat} — All Rules (_all.rules.md)`, await res.text());
+      try {
+        const res = await fetch(`/api/indexes/${cat}/rules`);
+        if (!res.ok) { alert('Consolidated rules not available — run index preparation first'); return; }
+        openModal(`${cat} — All Rules (_all.rules.md)`, await res.text());
+      } catch (e) { alert('Server unreachable'); }
     }
 
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -896,7 +904,7 @@
           iconHtml = '<span class="log-icon-start">\u2022</span>';
         }
 
-        const agentName = l.agent || '';
+        const agentName = escapeHtml(String(l.agent || ''));
         const isSubAgent = agentName && agentName !== 'governance-agent';
         let badgeHtml = '';
         if (agentName) {
@@ -906,13 +914,13 @@
           badgeHtml = `<span class="agent-badge ${badgeCls}">${agentName}</span>`;
         }
 
-        const stepLabel = l.step !== undefined && l.step !== 'done' ? `Step ${l.step}: ` : '';
-        const msg = l.message || '';
+        const stepLabel = l.step !== undefined && l.step !== 'done' ? `Step ${escapeHtml(String(l.step))}: ` : '';
+        const msg = escapeHtml(String(l.message || ''));
         const entryCls = isSubAgent ? 'log-entry sub-agent' : 'log-entry';
 
         let html = `<div class="${entryCls}">${iconHtml} ${badgeHtml}${stepLabel}${msg}</div>`;
         if (l.detail) {
-          html += `<div class="log-detail${isSubAgent ? ' sub-agent' : ''}">${l.detail}</div>`;
+          html += `<div class="log-detail${isSubAgent ? ' sub-agent' : ''}">${escapeHtml(String(l.detail))}</div>`;
         }
         if (l.output) {
           html += `<details class="log-output${isSubAgent ? ' sub-agent' : ''}"><summary>Show model output</summary>`;
@@ -930,25 +938,58 @@
         }
       }
 
-      return `<div class="progress-log" id="progressScroll">${lines}${tail}</div>`;
+      return `<div class="progress-log">${lines}${tail}</div>`;
     }
 
-    // ── Score card renderer ───────────────────────────────────────────
+    // ── Action summary card renderer ───────────────────────────────────
 
-    function renderScoreCard(scores) {
-      if (!scores) return '';
-      const overall = scores.score || 0;
-      const cls = overall >= 70 ? 'score-pass' : 'score-fail';
+    const ACTION_TIERS = ['compliant', 'verify', 'investigate', 'plan', 'remediate'];
+    const TIER_META = {
+      compliant:   { label: 'Compliant',   cls: 'pill-compliant',   seg: 'seg-compliant' },
+      verify:      { label: 'Verify',      cls: 'pill-verify',      seg: 'seg-verify' },
+      investigate: { label: 'Investigate', cls: 'pill-investigate', seg: 'seg-investigate' },
+      plan:        { label: 'Plan',        cls: 'pill-plan',        seg: 'seg-plan' },
+      remediate:   { label: 'Remediate',   cls: 'pill-remediate',   seg: 'seg-remediate' },
+    };
+
+    function renderScoreCard(data) {
+      if (!data) return '';
+      const summary = data.action_summary || data;
+      const total = ACTION_TIERS.reduce((s, t) => s + (summary[t] || 0), 0);
+      if (total === 0) return '';
+
+      let barHtml = '';
+      ACTION_TIERS.forEach(t => {
+        const n = summary[t] || 0;
+        if (n > 0) {
+          const pct = (n / total * 100).toFixed(1);
+          barHtml += `<div class="${TIER_META[t].seg}" style="width:${pct}%" title="${TIER_META[t].label}: ${n}"></div>`;
+        }
+      });
+
       let pills = '';
-      if (scores.patterns !== undefined)
-        pills += `<span class="score-pill" style="background:#ddf4ff;color:var(--accent)">Patterns: ${scores.patterns}</span>`;
-      if (scores.standards !== undefined)
-        pills += `<span class="score-pill" style="background:#fff8c5;color:var(--yellow)">Standards: ${scores.standards}</span>`;
-      if (scores.security !== undefined)
-        pills += `<span class="score-pill" style="background:#f3e8ff;color:var(--purple)">Security: ${scores.security}</span>`;
-      return `<div class="score-card">
-        <span class="score-overall ${cls}">${overall}/100 ${overall >= 70 ? 'PASS' : 'FAIL'}</span>
-        <div class="score-pills">${pills}</div>
+      ACTION_TIERS.forEach(t => {
+        const n = summary[t] || 0;
+        if (n > 0) {
+          pills += `<span class="action-pill ${TIER_META[t].cls}">${n} ${TIER_META[t].label}</span>`;
+        }
+      });
+
+      let catHtml = '';
+      const categories = data.categories || {};
+      if (Object.keys(categories).length > 0) {
+        catHtml = '<div style="margin-top:6px;font-size:0.75rem;color:var(--muted)">';
+        for (const [cat, counts] of Object.entries(categories)) {
+          const parts = ACTION_TIERS.filter(t => counts[t] > 0).map(t => `${counts[t]} ${t}`);
+          if (parts.length) catHtml += `<div>${cat}: ${parts.join(' · ')}</div>`;
+        }
+        catHtml += '</div>';
+      }
+
+      return `<div class="action-card">
+        <div class="action-bar">${barHtml}</div>
+        <div class="action-pills">${pills}</div>
+        ${catHtml}
       </div>`;
     }
 
@@ -1054,21 +1095,22 @@
         // Per-page rows
         cp.forEach(p => {
           const st = p.status || 'pending';
+          const sid = escapeHtml(String(p.page_id));
           const hasRules = p.rules_summary && p.rules_summary.total > 0;
           const hasLlm = !!p.llm_rules_at;
           const canPreview = ['ingested', 'validating', 'validated'].includes(st);
 
           html += `<div class="page-row">`;
-          html += `<span class="page-id">${p.page_id}</span>`;
-          html += `<span class="page-title">${p.title || '\u2014'}</span>`;
+          html += `<span class="page-id">${sid}</span>`;
+          html += `<span class="page-title">${escapeHtml(p.title || '\u2014')}</span>`;
 
           html += `<span class="page-meta">`;
           html += `<span class="status status-${st}">${(st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>`;
 
           if (hasRules) {
-            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${p.page_id}')" style="text-decoration:none">${renderRulesBadges(p.rules_summary)}</a>`;
+            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${sid}')" style="text-decoration:none">${renderRulesBadges(p.rules_summary)}</a>`;
           } else if (p.rules_count > 0) {
-            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${p.page_id}')" style="text-decoration:none"><span class="label">Rules: ${p.rules_count}</span></a>`;
+            html += `<a href="#" onclick="event.preventDefault();viewPageRules('${sid}')" style="text-decoration:none"><span class="label">Rules: ${p.rules_count}</span></a>`;
           }
 
           if (hasLlm) {
@@ -1082,18 +1124,18 @@
           }
 
           if (p.error) {
-            html += `<span class="error-msg">${p.error}</span>`;
+            html += `<span class="error-msg">${escapeHtml(p.error)}</span>`;
           }
           html += `</span>`;
 
           html += `<span class="page-actions">`;
-          if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`;
-          if (hasRules || hasLlm) html += `<button class="btn-sm" onclick="viewPageRules('${p.page_id}')">Rules</button>`;
+          if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${sid}')">Preview</button>`;
+          if (hasRules || hasLlm) html += `<button class="btn-sm" onclick="viewPageRules('${sid}')">Rules</button>`;
 
           const showMarkReady = st === 'pending' || (p.change_detected && st === 'ingested');
-          if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`;
-          if (['ingested', 'error'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">Re-index</button>`;
-          html += `<button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>`;
+          if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${sid}')">Mark Ready</button>`;
+          if (['ingested', 'error'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${sid}')">Re-index</button>`;
+          html += `<button class="btn-sm danger" onclick="removePage('${sid}')">Remove</button>`;
           html += `</span>`;
 
           html += `</div>`;
@@ -1130,31 +1172,32 @@
 
       valPages.forEach(p => {
         const st = p.status || 'pending';
-        const cmd = `@governance-agent Validate Confluence page ${p.page_id}`;
+        const safeId = escapeHtml(String(p.page_id));
+        const cmd = `@governance-agent Validate Confluence page ${safeId}`;
         const canPreview = ['ingested', 'validating', 'validated'].includes(st);
 
         html += `<div class="val-card">`;
         html += `<div class="val-header">`;
         html += `<span style="display:flex;gap:10px;align-items:center">`;
-        html += `<code style="font-size:0.85rem">${p.page_id}</code>`;
-        html += `<span style="font-weight:500">${p.title || '\u2014'}</span>`;
+        html += `<code style="font-size:0.85rem">${safeId}</code>`;
+        html += `<span style="font-weight:500">${escapeHtml(p.title || '\u2014')}</span>`;
         html += `<span class="status status-${st}">${(st === 'validating' || st === 'ingesting') ? '<span class="status-spinner"></span>' : ''}${st}</span>`;
         html += `</span>`;
 
         html += `<span style="display:flex;gap:5px">`;
-        if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${p.page_id}')">Preview</button>`;
-        if (st === 'validated') html += `<button class="btn-sm purple" onclick="viewReport('${p.page_id}')">Report</button>`;
+        if (canPreview) html += `<button class="btn-sm" onclick="viewPreview('${safeId}')">Preview</button>`;
+        if (st === 'validated') html += `<button class="btn-sm purple" onclick="viewReport('${safeId}')">Report</button>`;
         const showMarkReady = st === 'pending' || (p.change_detected && ['ingested', 'validated'].includes(st));
-        if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${p.page_id}')">Mark Ready</button>`;
-        if (['ingested', 'error', 'validated'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${p.page_id}')">Re-ingest</button>`;
-        html += `<button class="btn-sm danger" onclick="removePage('${p.page_id}')">Remove</button>`;
+        if (showMarkReady) html += `<button class="btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="markReady('${safeId}')">Mark Ready</button>`;
+        if (['ingested', 'error', 'validated'].includes(st)) html += `<button class="btn-sm" onclick="ingestPage('${safeId}')">Re-ingest</button>`;
+        html += `<button class="btn-sm danger" onclick="removePage('${safeId}')">Remove</button>`;
         html += `</span>`;
         html += `</div>`; // val-header
 
         html += `<div class="val-body">`;
 
         if (p.error) {
-          html += `<div class="error-msg">${p.error}</div>`;
+          html += `<div class="error-msg">${escapeHtml(p.error)}</div>`;
         }
 
         if (p.change_detected) {
@@ -1173,7 +1216,7 @@
           html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
           html += renderProgressLog(p.progress_log, true);
         } else if (st === 'ingested') {
-          html += `<div><span class="label">Page ingested to</span> <span style="font-family:'SF Mono',Consolas,monospace;font-size:0.78rem;color:var(--green)">${p.output_path || 'governance/output/' + p.page_id + '/'}</span></div>`;
+          html += `<div><span class="label">Page ingested to</span> <span style="font-family:'SF Mono',Consolas,monospace;font-size:0.78rem;color:var(--green)">${escapeHtml(p.output_path || 'governance/output/' + p.page_id + '/')}</span></div>`;
           html += `<div style="margin-top:8px"><span class="label">Run in VS Code Chat:</span><br>`;
           html += `<span class="cmd" onclick="copyCmd(this)" title="Click to copy">${cmd}</span></div>`;
         } else if (st === 'pending') {
@@ -1190,6 +1233,7 @@
     // ── Main render ───────────────────────────────────────────────────
 
     function renderAll(data) {
+      if (!data) return;
       const pages = data.pages || data;
       const indexes = data.indexes || {};
       document.getElementById('indexesSection').innerHTML = renderIndexesSection(pages, indexes);
@@ -1222,7 +1266,7 @@
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         alert(err.detail || 'Failed to add page');
         return;
       }
@@ -1230,16 +1274,16 @@
     }
 
     async function removePage(pageId) {
-      await fetch(`${API}/${pageId}`, { method: 'DELETE' });
+      try { await fetch(`${API}/${pageId}`, { method: 'DELETE' }); } catch (e) { /* SSE will refresh */ }
     }
 
     async function resetAll() {
       if (!confirm('Remove all watched pages and clean output folders?\n\nThis cannot be undone.')) return;
-      await fetch(API, { method: 'DELETE' });
+      try { await fetch(API, { method: 'DELETE' }); } catch (e) { alert('Server unreachable'); }
     }
 
     async function ingestPage(pageId) {
-      await fetch(`${API}/${pageId}/ingest`, { method: 'POST' });
+      try { await fetch(`${API}/${pageId}/ingest`, { method: 'POST' }); } catch (e) { alert('Server unreachable'); }
     }
 
     async function markReady(pageId) {
@@ -1253,11 +1297,13 @@
     // ── SSE — Server-Sent Events ──────────────────────────────────────
 
     let _sseAlive = 0;
+    let _sseRetryMs = 2000;
 
     function connectSSE() {
       const source = new EventSource('/api/events');
       source.onmessage = (event) => {
         _sseAlive = Date.now();
+        _sseRetryMs = 2000;
         try {
           const data = JSON.parse(event.data);
           _lastData = data;
@@ -1266,7 +1312,8 @@
       };
       source.onerror = () => {
         source.close();
-        setTimeout(connectSSE, 3000);
+        setTimeout(connectSSE, _sseRetryMs);
+        _sseRetryMs = Math.min(_sseRetryMs * 2, 30000);
       };
     }
 

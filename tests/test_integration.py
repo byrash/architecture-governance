@@ -66,9 +66,13 @@ class TestFullPipeline:
                 indexes_dir=str(Path(tmpdir) / "indexes"),
             )
 
-            assert "overall_score" in result
+            assert "action_summary" in result
             assert "rules" in result
             assert len(result["rules"]) > 0
+
+            for rule in result["rules"]:
+                assert "action" in rule
+                assert "urgency" in rule
 
             pre_score_path = page_dir / "pre-score.json"
             assert pre_score_path.exists()
@@ -78,4 +82,4 @@ class TestFullPipeline:
                 output_dir=str(Path(tmpdir) / "output"),
                 indexes_dir=str(Path(tmpdir) / "indexes"),
             )
-            assert result["overall_score"] == result2["overall_score"]
+            assert result["action_summary"] == result2["action_summary"]

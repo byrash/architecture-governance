@@ -65,10 +65,10 @@ SLIDES = [
         "svg_file": "slide2-validation.svg",
         "bullets": [
             "Target page downloaded from Confluence, diagrams parsed to AST (same pipeline as ingestion)",
-            "Scored against 3 knowledge base indexes: Security (Weight: 40%), Patterns (Weight: 30%), Standards (Weight: 30%)",
-            "80\u201390% of scoring is deterministic Python \u2014 stable, repeatable, no LLM variance",
+            "Validated against 3 knowledge base indexes: Security, Patterns, Standards",
+            "80\u201390% of validation is deterministic Python \u2014 stable, repeatable, no LLM variance",
             "LLM validation agents handle only 10\u201320% ambiguous rules (weak evidence or contradictions)",
-            "Output: Governance report, HTML dashboard, Confluence comment (Pass \u2265 70, Warn 50\u201369, Fail < 50)",
+            "Output: Governance report with action tiers (Compliant, Verify, Investigate, Plan, Remediate)",
         ],
     },
 ]

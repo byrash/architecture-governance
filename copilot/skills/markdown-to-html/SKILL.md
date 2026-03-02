@@ -10,7 +10,7 @@ Generate HTML dashboard from governance report using **incremental generation** 
 
 ## Input
 
-- `governance/output/<PAGE_ID>-governance-report.md` (compact summary with scores)
+- `governance/output/<PAGE_ID>-governance-report.md` (compact summary with action tiers)
 - `governance/output/<PAGE_ID>-patterns-report.md` (detailed findings)
 - `governance/output/<PAGE_ID>-standards-report.md` (detailed findings)
 - `governance/output/<PAGE_ID>-security-report.md` (detailed findings)
@@ -19,13 +19,14 @@ Generate HTML dashboard from governance report using **incremental generation** 
 
 ### Phase 1: Write HTML shell from governance report
 
-1. Read `<PAGE_ID>-governance-report.md` (compact -- scores, critical issues, recommendations)
+1. Read `<PAGE_ID>-governance-report.md` (compact -- action summary, critical issues, recommendations)
 2. Write `<PAGE_ID>-governance-report.html` with:
    - Full `<head>` with embedded CSS (see Styles below)
-   - Hero header with gradient, page title, generated timestamp, and overall verdict badge
-   - Score ring gauges row: one large ring for Overall score, three smaller rings for Patterns / Standards / Security
+   - Hero header with gradient, page title, generated timestamp, and action headline
+   - Action summary bar (horizontal stacked bar showing proportions of each tier)
+   - Five action count cards in a row (Compliant, Verify, Investigate, Plan, Remediate)
    - Executive Summary callout card
-   - Score Breakdown table with progress bars per category
+   - Actions by Category table (rows: category, columns: action tiers)
    - Critical Issues cards (red left-border, warning icon)
    - Quick Wins cards (green left-border, lightbulb icon)
    - Recommendations cards (blue left-border, arrow icon)
@@ -83,6 +84,8 @@ Embed this CSS in the `<style>` tag:
     --green-bg: #ecfdf5;
     --yellow: #f59e0b;
     --yellow-bg: #fffbeb;
+    --orange: #f97316;
+    --orange-bg: #fff7ed;
     --red: #ef4444;
     --red-bg: #fef2f2;
     --blue: #3b82f6;
@@ -123,40 +126,46 @@ main { max-width: 1100px; margin: 0 auto; padding: 0 24px 48px; }
 .hero > * { position: relative; z-index: 1; }
 .hero h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.02em; }
 .hero .meta { opacity: 0.85; font-size: 0.9rem; }
-.hero .verdict {
-    display: inline-flex; align-items: center; gap: 8px;
+.hero .action-headline {
     margin-top: 16px; padding: 8px 20px; border-radius: 999px;
     font-weight: 600; font-size: 0.95rem; backdrop-filter: blur(8px);
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
 }
-.verdict.pass { background: rgba(16,185,129,0.25); border: 1px solid rgba(16,185,129,0.4); }
-.verdict.warn { background: rgba(245,158,11,0.25); border: 1px solid rgba(245,158,11,0.4); }
-.verdict.fail { background: rgba(239,68,68,0.25); border: 1px solid rgba(239,68,68,0.4); }
 
-/* ── Score rings ──────────────────────────────── */
-.score-rings { display: flex; gap: 24px; justify-content: center; margin-bottom: 32px; flex-wrap: wrap; }
-.ring-card {
-    background: white; border-radius: var(--radius); padding: 28px 24px;
-    box-shadow: var(--shadow); text-align: center; min-width: 180px; flex: 1;
+/* ── Action summary bar ──────────────────────────── */
+.action-summary-bar {
+    display: flex; height: 14px; border-radius: 7px; overflow: hidden;
+    margin-bottom: 24px; box-shadow: var(--shadow-sm);
+}
+.action-summary-bar .seg { transition: width 0.6s ease; }
+.seg-compliant { background: var(--green); }
+.seg-verify { background: var(--blue); }
+.seg-investigate { background: var(--yellow); }
+.seg-plan { background: var(--orange); }
+.seg-remediate { background: var(--red); }
+
+/* ── Action count cards row ──────────────────────── */
+.action-cards { display: flex; gap: 16px; justify-content: center; margin-bottom: 32px; flex-wrap: wrap; }
+.action-card {
+    background: white; border-radius: var(--radius); padding: 20px 24px;
+    box-shadow: var(--shadow); text-align: center; min-width: 140px; flex: 1;
+    border-top: 4px solid var(--gray-200);
     transition: transform 0.2s, box-shadow 0.2s;
 }
-.ring-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.ring-card.main { flex: 1.4; }
-.ring-wrap { position: relative; width: 120px; height: 120px; margin: 0 auto 16px; }
-.ring-card.main .ring-wrap { width: 150px; height: 150px; }
-.ring-svg { transform: rotate(-90deg); width: 100%; height: 100%; }
-.ring-bg { fill: none; stroke: var(--gray-200); }
-.ring-fg { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease; }
-.ring-fg.pass { stroke: var(--green); }
-.ring-fg.warn { stroke: var(--yellow); }
-.ring-fg.fail { stroke: var(--red); }
-.ring-value {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-}
-.ring-value .number { font-size: 2rem; font-weight: 700; line-height: 1; }
-.ring-card.main .ring-value .number { font-size: 2.8rem; }
-.ring-value .label { font-size: 0.75rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
-.ring-card h3 { font-size: 0.85rem; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; }
+.action-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.action-card .count { font-size: 2rem; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+.action-card .tier-label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); }
+.action-card.compliant { border-top-color: var(--green); }
+.action-card.compliant .count { color: var(--green); }
+.action-card.verify { border-top-color: var(--blue); }
+.action-card.verify .count { color: var(--blue); }
+.action-card.investigate { border-top-color: var(--yellow); }
+.action-card.investigate .count { color: var(--yellow); }
+.action-card.plan { border-top-color: var(--orange); }
+.action-card.plan .count { color: var(--orange); }
+.action-card.remediate { border-top-color: var(--red); }
+.action-card.remediate .count { color: var(--red); }
 
 /* ── Section cards ────────────────────────────── */
 .section {
@@ -178,20 +187,15 @@ main { max-width: 1100px; margin: 0 auto; padding: 0 24px 48px; }
 }
 .exec-summary strong { color: var(--gray-900); }
 
-/* ── Score breakdown table ────────────────────── */
+/* ── Actions by category table ────────────────── */
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
 th { background: var(--gray-50); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gray-500); }
 th, td { padding: 12px 16px; text-align: left; }
 tbody tr { border-bottom: 1px solid var(--gray-100); }
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: var(--gray-50); }
-.score-bar { display: flex; align-items: center; gap: 10px; }
-.score-bar-track { flex: 1; height: 8px; background: var(--gray-200); border-radius: 4px; overflow: hidden; }
-.score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
-.score-bar-fill.pass { background: var(--green); }
-.score-bar-fill.warn { background: var(--yellow); }
-.score-bar-fill.fail { background: var(--red); }
-.score-num { font-weight: 600; min-width: 42px; text-align: right; }
+.count-cell { font-weight: 600; text-align: center; }
+.count-cell.has-value { font-size: 1.1rem; }
 .total-row { font-weight: 700; background: var(--gray-50); }
 .total-row td { border-top: 2px solid var(--gray-200); }
 
@@ -233,14 +237,16 @@ details[open] > summary::before { transform: rotate(90deg); }
 details .detail-body { padding: 0 20px 20px; }
 details table { font-size: 0.9rem; }
 
-/* ── Status pills in tables ───────────────────── */
+/* ── Action pills in tables ──────────────────── */
 .status-pill {
     display: inline-block; padding: 2px 10px; border-radius: 999px;
     font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
 }
-.status-pill.pass { background: var(--green-bg); color: var(--green); }
-.status-pill.error { background: var(--red-bg); color: var(--red); }
-.status-pill.warn { background: var(--yellow-bg); color: var(--yellow); }
+.status-pill.compliant { background: var(--green-bg); color: var(--green); }
+.status-pill.verify { background: var(--blue-bg); color: var(--blue); }
+.status-pill.investigate { background: var(--yellow-bg); color: var(--yellow); }
+.status-pill.plan { background: var(--orange-bg); color: var(--orange); }
+.status-pill.remediate { background: var(--red-bg); color: var(--red); }
 
 /* ── Footer ───────────────────────────────────── */
 .report-footer {
@@ -250,8 +256,8 @@ details table { font-size: 0.9rem; }
 
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 768px) {
-    .score-rings { flex-direction: column; align-items: center; }
-    .ring-card { min-width: unset; width: 100%; max-width: 300px; }
+    .action-cards { flex-direction: column; align-items: center; }
+    .action-card { min-width: unset; width: 100%; max-width: 300px; }
     .hero { padding: 24px; }
 }
 ```
@@ -264,46 +270,49 @@ details table { font-size: 0.9rem; }
 <div class="hero">
     <h1>🏛️ Architecture Governance Report</h1>
     <div class="meta">Page ID: <PAGE_ID> · Generated: <TIMESTAMP></div>
-    <div class="verdict [pass/warn/fail]">
-        [✅ PASS / ⚠️ NEEDS WORK / ❌ FAILING] — Overall Score: [X]/100
+    <div class="action-headline">
+        [N] rules need remediation, [N] need investigation
     </div>
 </div>
 ```
 
-### Score Ring Gauges
+### Action Summary Bar
 
-Use SVG circle with `stroke-dasharray` and `stroke-dashoffset` for the gauge ring. The circumference for a circle with `r=50` centered at `60,60` is ~314. Set `stroke-dasharray="314"` and `stroke-dashoffset` to `314 - (score/100 * 314)`.
+A horizontal stacked bar showing the proportion of each action tier. Calculate each segment width as `(count / total * 100)%`.
 
 ```html
-<div class="score-rings">
-    <div class="ring-card main">
-        <div class="ring-wrap">
-            <svg class="ring-svg" viewBox="0 0 120 120">
-                <circle class="ring-bg" cx="60" cy="60" r="50" stroke-width="10"/>
-                <circle class="ring-fg [pass/warn/fail]" cx="60" cy="60" r="50" stroke-width="10"
-                    stroke-dasharray="314" stroke-dashoffset="[314 - score/100*314]"/>
-            </svg>
-            <div class="ring-value">
-                <span class="number">[X]</span>
-                <span class="label">/ 100</span>
-            </div>
-        </div>
-        <h3>Overall Score</h3>
+<div class="action-summary-bar">
+    <div class="seg seg-compliant" style="width:[X]%" title="Compliant: [N]"></div>
+    <div class="seg seg-verify" style="width:[X]%" title="Verify: [N]"></div>
+    <div class="seg seg-investigate" style="width:[X]%" title="Investigate: [N]"></div>
+    <div class="seg seg-plan" style="width:[X]%" title="Plan: [N]"></div>
+    <div class="seg seg-remediate" style="width:[X]%" title="Remediate: [N]"></div>
+</div>
+```
+
+### Action Count Cards
+
+```html
+<div class="action-cards">
+    <div class="action-card compliant">
+        <div class="count">[N]</div>
+        <div class="tier-label">Compliant</div>
     </div>
-    <!-- Repeat for Patterns (30%), Standards (30%), Security (40%) -->
-    <div class="ring-card">
-        <div class="ring-wrap">
-            <svg class="ring-svg" viewBox="0 0 120 120">
-                <circle class="ring-bg" cx="60" cy="60" r="50" stroke-width="8"/>
-                <circle class="ring-fg [pass/warn/fail]" cx="60" cy="60" r="50" stroke-width="8"
-                    stroke-dasharray="314" stroke-dashoffset="[314 - score/100*314]"/>
-            </svg>
-            <div class="ring-value">
-                <span class="number">[X]</span>
-                <span class="label">/ 100</span>
-            </div>
-        </div>
-        <h3>Patterns <small style="font-weight:400;color:var(--gray-500)">(30%)</small></h3>
+    <div class="action-card verify">
+        <div class="count">[N]</div>
+        <div class="tier-label">Verify</div>
+    </div>
+    <div class="action-card investigate">
+        <div class="count">[N]</div>
+        <div class="tier-label">Investigate</div>
+    </div>
+    <div class="action-card plan">
+        <div class="count">[N]</div>
+        <div class="tier-label">Plan</div>
+    </div>
+    <div class="action-card remediate">
+        <div class="count">[N]</div>
+        <div class="tier-label">Remediate</div>
     </div>
 </div>
 ```
@@ -312,26 +321,26 @@ Use SVG circle with `stroke-dasharray` and `stroke-dashoffset` for the gauge rin
 
 ```html
 <div class="exec-summary">
-    [2-3 sentences from the governance report executive summary]
+    [2-3 sentences from the governance report executive summary, focusing on actions needed]
 </div>
 ```
 
-### Score Breakdown Table with Progress Bars
+### Actions by Category Table
 
 ```html
 <div class="section">
-    <h2><span class="icon">📊</span> Score Breakdown</h2>
+    <h2><span class="icon">📊</span> Actions by Category</h2>
     <table>
-        <thead><tr><th>Category</th><th>Score</th><th>Weight</th><th>Weighted</th><th>Checks</th><th>Errors</th><th>Warnings</th></tr></thead>
+        <thead><tr><th>Category</th><th>Compliant</th><th>Verify</th><th>Investigate</th><th>Plan</th><th>Remediate</th><th>Total</th></tr></thead>
         <tbody>
             <tr>
                 <td>Patterns</td>
-                <td><div class="score-bar"><div class="score-bar-track"><div class="score-bar-fill [pass/warn/fail]" style="width:[X]%"></div></div><span class="score-num">[X]</span></div></td>
-                <td>30%</td><td>[X.X]</td><td>[n]</td><td>[n]</td><td>[n]</td>
+                <td class="count-cell">[n]</td><td class="count-cell">[n]</td><td class="count-cell">[n]</td><td class="count-cell">[n]</td><td class="count-cell">[n]</td><td class="count-cell"><strong>[n]</strong></td>
             </tr>
             <!-- Standards, Security rows -->
             <tr class="total-row">
-                <td>Total</td><td></td><td></td><td><strong>[X]/100</strong></td><td><strong>[n]</strong></td><td><strong>[n]</strong></td><td><strong>[n]</strong></td>
+                <td>Total</td>
+                <td class="count-cell"><strong>[n]</strong></td><td class="count-cell"><strong>[n]</strong></td><td class="count-cell"><strong>[n]</strong></td><td class="count-cell"><strong>[n]</strong></td><td class="count-cell"><strong>[n]</strong></td><td class="count-cell"><strong>[n]</strong></td>
             </tr>
         </tbody>
     </table>
@@ -365,21 +374,21 @@ Use SVG circle with `stroke-dasharray` and `stroke-dashoffset` for the gauge rin
 
 ### Finding Table Rows in Detail Sections
 
-Apply status pill based on status:
+Apply action pill based on action tier:
 
 ```html
 <tr>
     <td>Pattern Name</td>
     <td>R-001</td>
     <td>source.md</td>
-    <td><span class="status-pill pass">PASS</span></td>
+    <td><span class="status-pill compliant">COMPLIANT</span></td>
     <td>Evidence quote</td>
 </tr>
 <tr>
     <td>Pattern Name</td>
     <td>R-002</td>
     <td>source.md</td>
-    <td><span class="status-pill error">ERROR</span></td>
+    <td><span class="status-pill remediate">REMEDIATE</span></td>
     <td>NOT FOUND</td>
 </tr>
 ```
@@ -392,8 +401,10 @@ Apply status pill based on status:
 </div>
 ```
 
-## Styling Rules
+## Action Tier Color Reference
 
-- Score >= 70: `pass` class (green)
-- Score 50-69: `warn` class (yellow)
-- Score < 50: `fail` class (red)
+- **Compliant**: green (`var(--green)`)
+- **Verify**: blue (`var(--blue)`)
+- **Investigate**: yellow (`var(--yellow)`)
+- **Plan**: orange (`var(--orange)`)
+- **Remediate**: red (`var(--red)`)

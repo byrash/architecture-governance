@@ -95,9 +95,18 @@ def _md_to_html(path: Path) -> str:
         return f"<pre>{md_content}</pre>"
 
 
+_SAFE_PAGE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_page_id(page_id: str) -> None:
+    if not _SAFE_PAGE_ID.match(page_id):
+        raise HTTPException(status_code=400, detail="Invalid page_id")
+
+
 @app.get("/pages/{page_id}/preview", response_class=HTMLResponse)
 async def preview_page(page_id: str):
     """Render an ingested page.md as styled HTML (used by modal overlay)."""
+    _validate_page_id(page_id)
     md_path = Path("governance/output") / page_id / "page.md"
     if not md_path.exists():
         raise HTTPException(status_code=404, detail=f"page.md not found for {page_id}")
@@ -146,6 +155,7 @@ async def sse_events(request: Request):
 # REST API — Pages
 # ──────────────────────────────────────────────────────────────────
 
+
 @app.get("/api/pages")
 async def list_pages():
     return JSONResponse(content=store.list_all())
@@ -153,7 +163,12 @@ async def list_pages():
 
 @app.post("/api/pages")
 async def add_page(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
     page_id = body.get("page_id")
     if not page_id:
         raise HTTPException(status_code=400, detail="page_id is required")
@@ -205,6 +220,7 @@ async def reset_all():
 @app.post("/api/pages/{page_id}/ingest")
 async def trigger_ingest(page_id: str):
     """Ingest a page. In index mode, also indexes + extracts rules."""
+    _validate_page_id(page_id)
     info = store.get_page(page_id)
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
@@ -214,7 +230,7 @@ async def trigger_ingest(page_id: str):
         stale_validation=False, change_detected=False,
     )
     store.clear_progress(page_id)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     try:
         result = await loop.run_in_executor(None, _run_ingest_sync, page_id, info)
@@ -249,7 +265,7 @@ async def mark_ready(page_id: str):
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, add_trigger_label, page_id)
     except RuntimeError as exc:
@@ -298,14 +314,20 @@ async def post_progress(page_id: str, request: Request):
 
     On the first entry, auto-transitions status from ingested -> validating.
     When a terminal entry arrives (step 'done', or message containing
-    'validation complete' / 'score'), auto-transitions to 'validated' and
-    reads report scores from disk if available.
+    'validation complete' / 'reports merged'), auto-transitions to 'validated'
+    and reads the action summary from disk if available.
     """
+    _validate_page_id(page_id)
     info = store.get_page(page_id)
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
     store.append_progress(page_id, body)
 
     current_status = info.get("status")
@@ -320,7 +342,7 @@ async def post_progress(page_id: str, request: Request):
         is_terminal = (
             step == "done"
             or ("validation complete" in message)
-            or ("score" in message and status == "complete")
+            or ("reports merged" in message and status == "complete")
             or (step.startswith("8") and status == "complete")
         )
         if is_terminal:
@@ -355,12 +377,51 @@ def _auto_complete_validation(page_id: str, body: dict) -> None:
 
 
 def _extract_scores_from_report(path: Path) -> dict | None:
-    """Best-effort score extraction from a markdown governance report."""
+    """Best-effort action summary extraction from a markdown governance report.
+
+    Parses the Action Summary table for both overall and per-category tier counts.
+    Table format:
+        | Action | Total | Patterns | Standards | Security |
+        | **Remediate** | 2 | 1 | 0 | 1 |
+    """
+    tiers = ("compliant", "verify", "investigate", "plan", "remediate")
+    cat_names = ("patterns", "standards", "security")
     try:
         content = path.read_text(encoding="utf-8")
-        score_match = re.search(r"(\d{1,3})\s*/\s*100", content)
-        if score_match:
-            return {"score": int(score_match.group(1))}
+        table_m = re.search(
+            r"## Action Summary\s*\n+.*?\n\|[-\s|]+\|\n(.*?)(?=\n## |\Z)",
+            content, re.DOTALL,
+        )
+        if not table_m:
+            return None
+
+        summary: dict[str, int] = {}
+        categories: dict[str, dict[str, int]] = {}
+
+        for line in table_m.group(1).strip().splitlines():
+            cols = [c.strip() for c in line.strip("|").split("|")]
+            if len(cols) < 2:
+                continue
+            tier_name = cols[0].replace("*", "").strip().lower()
+            if tier_name not in tiers:
+                continue
+            try:
+                summary[tier_name] = int(cols[1])
+            except (ValueError, IndexError):
+                pass
+            for i, cat in enumerate(cat_names):
+                if i + 2 < len(cols):
+                    categories.setdefault(cat, {t: 0 for t in tiers})
+                    try:
+                        categories[cat][tier_name] = int(cols[i + 2])
+                    except (ValueError, IndexError):
+                        pass
+
+        if summary:
+            result: dict = {"action_summary": summary}
+            if categories:
+                result["categories"] = categories
+            return result
     except Exception:
         pass
     return None
@@ -384,16 +445,21 @@ async def get_progress(page_id: str):
 
 @app.post("/api/pages/{page_id}/report")
 async def post_report(page_id: str, request: Request):
-    """Accept the final report scores from the governance-agent.
+    """Accept the final action summary from the governance-agent.
 
-    Sets status to validated, stores the score breakdown, and removes the
+    Sets status to validated, stores the action breakdown, and removes the
     trigger label from the Confluence page (best-effort, non-blocking).
     """
     info = store.get_page(page_id)
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
     store.update_page(
         page_id,
         status="validated",
@@ -401,14 +467,19 @@ async def post_report(page_id: str, request: Request):
         report_scores=body,
         change_detected=False,
     )
+    actions = body.get("action_summary", {})
+    action_parts = [f"{actions.get(t, 0)} {t}" for t in
+                    ("remediate", "investigate", "plan", "verify", "compliant")
+                    if actions.get(t)]
+    action_text = " | ".join(action_parts) if action_parts else "no actions"
     store.append_progress(page_id, {
         "step": "done",
         "agent": "governance-agent",
         "status": "complete",
-        "message": f"Validation complete — score {body.get('score', '?')}/100",
+        "message": f"Validation complete — {action_text}",
     })
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     loop.run_in_executor(None, remove_trigger_label, page_id)
 
     return JSONResponse(content={"ok": True})
@@ -423,6 +494,7 @@ async def get_report(page_id: str):
     For markdown-only reports, builds inline-styled HTML via the
     Confluence comment builder (looks identical in the modal).
     """
+    _validate_page_id(page_id)
     html_report = Path("governance/output") / f"{page_id}-governance-report.html"
     md_report = Path("governance/output") / f"{page_id}-governance-report.md"
 
@@ -469,6 +541,7 @@ def _scope_report_html(raw_html: str) -> str:
 @app.get("/api/pages/{page_id}/rules")
 async def get_rules(page_id: str):
     """Return the rules.md rendered as HTML for the modal overlay."""
+    _validate_page_id(page_id)
     info = store.get_page(page_id)
     if not info:
         raise HTTPException(status_code=404, detail="Page not watched")
@@ -512,7 +585,12 @@ async def post_index_progress(category: str, request: Request):
     """
     if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
     store.append_index_progress(category, body)
 
     step = str(body.get("step", ""))
@@ -549,7 +627,12 @@ async def index_prepared(category: str, request: Request):
     """
     if category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
 
     store.set_index_status(category, "prepared")
     store.append_index_progress(category, {

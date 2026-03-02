@@ -202,6 +202,9 @@ async def poll_loop(store: WatcherStore) -> None:
                             page_id, expand="version,metadata.labels",
                         )
                         version = page.get("version", {}).get("number")
+                        if version is None:
+                            print(f"[watcher] Skipping {page_id}: no version in API response", file=sys.stderr)
+                            continue
                         title = page.get("title", "")
                         has_label = _has_trigger_label(page)
                         ingested_ver = info.get("ingested_version")
@@ -240,7 +243,7 @@ async def poll_loop(store: WatcherStore) -> None:
                             )
 
                             is_index = info.get("mode") == "index"
-                            loop = asyncio.get_event_loop()
+                            loop = asyncio.get_running_loop()
                             await loop.run_in_executor(
                                 None, _run_ingest, page_id, store,
                             )

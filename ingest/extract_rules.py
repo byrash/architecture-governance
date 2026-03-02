@@ -41,10 +41,6 @@ def _make_rule_id(category: str, rule_name: str, ast_condition: str) -> str:
     return f"R-{prefix}-{h}"
 
 
-def _is_new_rule_id(rid: str) -> bool:
-    """Check if an ID uses the new R-PREFIX-hash format."""
-    return bool(re.match(r'^R-[A-Z]+-[a-f0-9]{6}$', rid))
-
 
 # ──────────────────────────────────────────────────────────────────
 # Rule derivation from AST

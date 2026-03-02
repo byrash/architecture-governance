@@ -62,14 +62,20 @@ class WatcherStore:
         if self._path.exists():
             try:
                 with open(self._path, "r") as f:
-                    self._pages = json.load(f)
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._pages = data
+                else:
+                    self._pages = {}
             except (json.JSONDecodeError, IOError):
                 self._pages = {}
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "w") as f:
+        tmp = self._path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
             json.dump(self._pages, f, indent=2, default=str)
+        tmp.replace(self._path)
 
     def save(self) -> None:
         """Explicit save for shutdown / flush."""
@@ -98,7 +104,7 @@ class WatcherStore:
         result = {}
         for pid, info in self._pages.items():
             entry = dict(info)
-            entry["progress_log"] = self._progress.get(pid, [])
+            entry["progress_log"] = list(self._progress.get(pid, []))
             result[pid] = entry
         return result
 
@@ -108,7 +114,7 @@ class WatcherStore:
         indexes: Dict[str, Any] = {}
         for cat in CATEGORIES:
             indexes[cat] = {
-                "progress_log": self._index_progress.get(cat, []),
+                "progress_log": list(self._index_progress.get(cat, [])),
                 "status": self._index_status.get(cat, "idle"),
             }
         return {"pages": pages, "indexes": indexes}
@@ -155,10 +161,12 @@ class WatcherStore:
         return False
 
     def clear_all(self) -> int:
-        """Remove all pages and progress. Returns count of pages removed."""
+        """Remove all pages, progress, and index state. Returns count of pages removed."""
         count = len(self._pages)
         self._pages.clear()
         self._progress.clear()
+        self._index_progress.clear()
+        self._index_status.clear()
         self._save()
         self._notify()
         return count
@@ -175,7 +183,7 @@ class WatcherStore:
     def append_progress(self, page_id: str, entry: Dict[str, Any]) -> None:
         if page_id not in self._pages:
             return
-        entry["timestamp"] = datetime.now().isoformat()
+        entry = {**entry, "timestamp": datetime.now().isoformat()}
         self._progress.setdefault(page_id, []).append(entry)
         self._notify()
 
@@ -191,7 +199,7 @@ class WatcherStore:
     def append_index_progress(self, category: str, entry: Dict[str, Any]) -> None:
         if category not in CATEGORIES:
             return
-        entry["timestamp"] = datetime.now().isoformat()
+        entry = {**entry, "timestamp": datetime.now().isoformat()}
         self._index_progress.setdefault(category, []).append(entry)
         if self._index_status.get(category) != "prepared":
             self._index_status[category] = "preparing"

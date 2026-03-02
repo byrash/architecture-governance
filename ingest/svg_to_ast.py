@@ -38,7 +38,7 @@ def is_embedded_raster(svg_content: str) -> bool:
     xlink_images = list(root.iter(f'{{{ns.get("xlink", "")}}}image')) if ns.get("xlink") else []
     image_list.extend(xlink_images)
 
-    texts = _find_all_text(root, ns)
+    texts = _find_all_text(root)
     rects = list(root.iter(f'{{{ns.get("", "")}}}rect')) if ns.get("") else list(root.iter('rect'))
 
     if image_list and not texts and len(rects) <= 1:
@@ -67,7 +67,7 @@ def _get_namespaces(root: ET.Element) -> Dict[str, str]:
     return nsmap
 
 
-def _find_all_text(root: ET.Element, ns: Dict[str, str]) -> List[str]:
+def _find_all_text(root: ET.Element) -> List[str]:
     texts = []
     for elem in root.iter():
         tag = elem.tag
@@ -163,14 +163,6 @@ def _point_near_shape(px: float, py: float, bbox: Tuple[float, float, float, flo
     dx = max(abs(px - cx) - w / 2, 0)
     dy = max(abs(py - cy) - h / 2, 0)
     return math.sqrt(dx * dx + dy * dy) <= tolerance
-
-
-def _sanitize_id(text: str) -> str:
-    clean = re.sub(r'[^a-zA-Z0-9]', '_', text)
-    clean = re.sub(r'_+', '_', clean).strip('_')
-    if not clean or clean[0].isdigit():
-        clean = 'n_' + clean
-    return clean[:30]
 
 
 def _detect_shape_type(elem: ET.Element) -> str:

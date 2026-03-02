@@ -205,9 +205,9 @@ Dual-mode orchestrator supporting **index preparation** (Process 1 LLM tasks) an
 | 3 | (LLM, cached) | `python -m ingest.extract_claims --check --page-id <PAGE_ID>` (extract claims -> `page-claims.json`) |
 | 4 | (deterministic) | `python -m ingest.score_rules --page-id <PAGE_ID> --all` (score -> `pre-score.json`) |
 | 5-7 | patterns / standards / security agent | `Validate governance/output/<PAGE_ID>/page.md` (parallel, uses `pre-score.json` for locked rules) |
-| 8 | (self) | Merge reports (merge-reports skill, 30/30/40 weights) |
+| 8 | (self) | Merge reports (merge-reports skill, action summary across categories) |
 | 9 | (self) | Generate HTML dashboard (markdown-to-html skill) |
-| 10 | (self) | Post report to Confluence + notify watcher server with final scores |
+| 10 | (self) | Post report to Confluence + notify watcher server with final action summary |
 
 **Index preparation mode** (4 steps):
 
@@ -653,26 +653,25 @@ The scoring system uses a hybrid approach that freezes LLM variance at extractio
 | ABSENT_ERROR | 0 | Yes | No evidence found |
 | CONFIRMED_ERROR | 0 | Yes | AST condition confirms violation |
 
-### Category Weights
+### Action Tiers
 
-| Category | Weight |
-|----------|--------|
-| Patterns | 30% |
-| Standards | 30% |
-| Security | 40% |
+Each rule is assigned an action tier instead of a numeric score:
 
-**Thresholds:**
-- **PASS**: Score >= 70
-- **WARN**: Score 50-69
-- **FAIL**: Score < 50
+| Action | Meaning |
+|--------|---------|
+| **Compliant** | No action needed — rule is satisfied |
+| **Verify** | Likely compliant — confirm in next review |
+| **Investigate** | Ambiguous evidence — needs human review |
+| **Plan** | Acknowledged gap — schedule on roadmap |
+| **Remediate** | Violation or missing — implement or fix |
 
 ### Expected Impact
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Score variance per run | ~15-25 points | ~1-3 points |
-| % rules scored by LLM | 100% | ~10-20% |
-| Re-score unchanged page | Full LLM run (~3-5 min) | Instant (cached, Python only) |
+| Result variance per run | ~15-25 points | ~1-3 tier differences |
+| % rules evaluated by LLM | 100% | ~10-20% |
+| Re-evaluate unchanged page | Full LLM run (~3-5 min) | Instant (cached, Python only) |
 
 ## Skill Discovery
 
@@ -853,7 +852,7 @@ Your skill output is collated into the validation report with full transparency:
 |-------------------|--------------|
 | Clean findings (PASS/FAIL/WARN) | Extracted as rows in the main findings table, tagged `🔌 External` |
 | Unstructured or custom format | Best-effort parsing + raw output preserved in a collapsed `<details>` block |
-| No output or error | Logged as `⚠️ SKIPPED` -- does not block the report or penalize score |
+| No output or error | Logged as `⚠️ SKIPPED` -- does not block the report or penalize action tier counts |
 | No relevant findings | Logged as `ℹ️ NO FINDINGS` -- raw output preserved for audit |
 
 Your skill's findings always appear in a dedicated **Discovered Skill Findings** section in the report, with your skill name and a `🔌 External` flag so reviewers know the source.
